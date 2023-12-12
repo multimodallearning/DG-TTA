@@ -1,14 +1,13 @@
 
 # %%
 
-NNUNET_BASE_DIR = '/home/weihsbach/storage/staff/christianweihsbach/nnunet/'
+NNUNET_BASE_DIR = '/home/weihsbach/storage/staff/christianweihsbach/nnunet/' # TODO remove this line
 import os
 os.environ['nnUNet_raw'] = NNUNET_BASE_DIR + "nnUNetV2_raw"
 os.environ['nnUNet_preprocessed'] = NNUNET_BASE_DIR + "nnUNetV2_preprocessed"
 os.environ['nnUNet_results'] = NNUNET_BASE_DIR + "nnUNetV2_results" # TODO check nnunet paths
 
 import torch
-from nnunetv2.training.nnUNetTrainer.variants.mdl_group_variants.nnUNetTrainer_GIN import gin_hook
 from datetime import datetime
 import wandb
 import shutil
@@ -38,55 +37,13 @@ from pathlib import Path
 from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
 
 from collections import defaultdict
-os.environ.update(get_vars('*'))
+os.environ.update(get_vars('*')) # TODO remove this line
 
-# %%
-# def localNorm(train_img):
-#     K = 11
-#     kw = (K - 1) // 2
-#     kernel_norm = F.avg_pool2d(torch.ones_like(train_img), K, stride=1, padding=kw)
-#     img_mean = F.avg_pool2d(train_img, K, stride=1, padding=kw) / kernel_norm
-
-#     img_var = (
-#         F.avg_pool2d(train_img**2, K, stride=1, padding=kw) / kernel_norm
-#         - img_mean**2
-#     )
-#     img_norm = (train_img - img_mean) / torch.sqrt(img_var + 0.1)
-#     return img_norm
-
-
-# def localNorm3d(train_img):
-#     K = 11
-#     kw = (K - 1) // 2
-
-#     kernel_norm = F.avg_pool3d(torch.ones_like(train_img), K, stride=1, padding=kw)
-#     img_mean = F.avg_pool3d(train_img, K, stride=1, padding=kw) / kernel_norm
-
-#     img_var = (
-#         F.avg_pool3d(train_img**2, K, stride=1, padding=kw) / kernel_norm
-#         - img_mean**2
-#     )
-#     img_norm = (train_img - img_mean) / torch.sqrt(img_var + 0.1)
-#     return img_norm
-
-
-# %%
-# def get_centers(probs):
-#     B,C,D,H,W = probs.shape
-#     prob_sum = probs.sum((-3,-2,-1))
-#     d_centers = (probs * torch.arange(D, device=probs.device).view(1,1,D,1,1)).sum((-3,-2,-1))
-#     h_centers = (probs * torch.arange(H, device=probs.device).view(1,1,1,H,1)).sum((-3,-2,-1))
-#     w_centers = (probs * torch.arange(W, device=probs.device).view(1,1,1,1,W)).sum((-3,-2,-1))
-
-#     centers = torch.stack([d_centers, h_centers, w_centers], dim=-1)
-#     centers = centers / prob_sum.view(B,C,1)
-#     return centers
-
-# TODO clean functions
 
 # %%
 def dice_coeff(outputs, labels, max_label):
     dice = torch.FloatTensor(max_label - 1).fill_(0)
+
     for label_num in range(1, max_label):
         iflat = (outputs == label_num).view(-1).float()
         tflat = (labels == label_num).view(-1).float()
@@ -96,344 +53,12 @@ def dice_coeff(outputs, labels, max_label):
         )
     return dice
 
-def get_rf_field(num_batch, size_3d, interpolation_factor=4, num_fields=4, alternating_fields=True, device='device'):
 
-    rf_field = F.interpolate(
-        F.avg_pool3d(
-            F.avg_pool3d(
-                F.avg_pool3d(
-                    torch.randn(
-                        num_batch, num_fields,
-                        size_3d[0]//interpolation_factor,
-                        size_3d[1]//interpolation_factor,
-                        size_3d[2]//interpolation_factor, device=device),
-                    interpolation_factor,
-                    stride=1,
-                    padding=interpolation_factor//2,
-                ),
-                interpolation_factor,
-                stride=1,
-                padding=interpolation_factor//2,
-            ),
-            interpolation_factor,
-            stride=1,
-            padding=interpolation_factor//2,
-        ),
-        size=size_3d,
-        mode="trilinear",
-    )
-    rf_field -= rf_field.mean((-3,-2,-1), keepdim=True)
-    rf_field /= 1e-3 + rf_field.view(num_batch * num_fields, -1).std(1).view(
-        num_batch, num_fields, 1, 1, 1
-    )
-    if alternating_fields:
-        rf_field *= 2.5
-        rf_field[:, ::2] += 1
-
-    return rf_field
-
-def load_batch_train(train_data, batch_idx, patch_size, affine_rand=0.05, use_rf=False, fixed_patch_idx=None):
-    assert fixed_patch_idx in range(8) or fixed_patch_idx == None or fixed_patch_idx == 'center'
-
-    num_batch = len(batch_idx)
-    C = max(train_data.shape[1] - 1, 1)
-    train_img = torch.zeros(num_batch, C, patch_size[0], patch_size[1], patch_size[2]).to(train_data.device)
-
-    train_img1 = None
-    train_label = torch.zeros(num_batch, patch_size[0], patch_size[1], patch_size[2]).to(train_data.device).long()
-
-    for b in range(num_batch):
-        with torch.no_grad():
-            # Get patches
-            data = train_data[batch_idx[b]]
-            if fixed_patch_idx is None:
-                rand_patch1 = torch.randint(max(data.shape[1] - patch_size[0], 0), (1,))
-                rand_patch2 = torch.randint(max(data.shape[2] - patch_size[1], 0), (1,))
-                rand_patch3 = torch.randint(max(data.shape[3] - patch_size[2], 0), (1,))
-            elif fixed_patch_idx == 'center':
-                rand_patch1 = max((data.shape[1]-patch_size[0])//2, 0)
-                rand_patch2 = max((data.shape[2]-patch_size[1])//2, 0)
-                rand_patch3 = max((data.shape[3]-patch_size[2])//2, 0)
-            else:
-                p_idxs = f"{fixed_patch_idx:03b}"
-                p_idxs = [int(idx) for idx in [*p_idxs]]
-                rand_patch1 = p_idxs[0] * patch_size[0]
-                rand_patch2 = p_idxs[1] * patch_size[1]
-                rand_patch3 = p_idxs[2] * patch_size[2]
-                # print(rand_patch1, rand_patch2, rand_patch3)
-
-            out_shape = (
-                1,
-                1,
-                max(data.shape[1], patch_size[0]),
-                max(data.shape[2], patch_size[1]),
-                max(data.shape[3], patch_size[2]),
-            )
-            grid = F.affine_grid(
-                torch.eye(3, 4).unsqueeze(0).to(train_data.device)
-                + affine_rand * torch.randn(1, 3, 4).to(train_data.device),
-                out_shape, align_corners=False
-            )
-            patch_grid = grid[
-                :,
-                rand_patch1 : rand_patch1 + patch_size[0],
-                rand_patch2 : rand_patch2 + patch_size[1],
-                rand_patch3 : rand_patch3 + patch_size[2],
-            ]
-            if train_data.shape[1] > 1:
-                train_label[b] = (
-                    F.grid_sample(
-                        data[-1:].unsqueeze(0).to(train_data.device), patch_grid, mode="nearest", align_corners=False
-                    )
-                    .squeeze()
-                    .long()
-                )
-            train_img[b] = F.grid_sample(
-                data[:-1].unsqueeze(0).to(train_data.device), patch_grid, align_corners=False
-            ).squeeze()
-
-    train_label = train_label.clamp_min_(0)
-
-    all_train_img_augs = []
-    if use_rf:
-        with torch.no_grad():
-            for _ in range(2):
-                rf_field = get_rf_field(num_batch, (patch_size, patch_size, patch_size))
-                train_img_aug = (
-                    train_img * rf_field[:, : 2 * C : 2] + rf_field[:, 1 : 2 * C : 2]
-                )
-                all_train_img_augs.append(train_img_aug)
-
-    return train_img, train_label, all_train_img_augs
-
-
-# %%
-def soft_dice(fixed,moving):
-    B,C,D,H,W = fixed.shape
-    # TODO Add d parameter
-
-    nominator = (4. * fixed*moving).reshape(B,-1,D*H*W).mean(2)
-    denominator = ((fixed + moving)**2).reshape(B,-1,D*H*W).mean(2)
-
-    if denominator.sum() == 0.:
-        dice = (nominator * 0.) + 1.
-    else:
-        dice  = nominator / denominator # Do not add an eps here, it disturbs the consistency
-
-    return dice
-
-
-
-
-# %%
-# TODO move into torch utils
-def fix_all(m):
-    for p in m.parameters():
-        p.requires_grad_(False)
-
-def release_all(m):
-    for p in m.parameters():
-        p.requires_grad_(True)
-
-def release_norms(m):
-    if 'instancenorm' in m.__class__.__name__.lower() or 'batchnorm' in m.__class__.__name__.lower():
-        print("Released", m.__class__.__name__)
-        for p in m.parameters():
-            p.requires_grad_(True)
-
-
-# %%
-def calc_consistent_diffeomorphic_field(disp_field, inverse_disp_field, time_steps=1, ensure_inverse_consistency=True, iter_steps_override=None):
-    # https://github.com/multimodallearning/convexAdam/blob/76a595914eb21ea17795e6cd19503ab447f0ea6b/l2r_2021_convexAdam_task1_docker.py#L166
-    # https://github.com/cwmok/LapIRN/blob/d8f96770a704b1f190955cc26297c7b01a270b0a/Code/miccai2020_model_stage.py#L761
-
-    # Vincent Arsigny, Olivier Commowick, Xavier Pennec, Nicholas Ayache: A Log-Euclidean Framework for Statistics on Diffeomorphisms
-    B,C,D,H,W = disp_field.size()
-    dimension_correction = torch.tensor([D,H,W], device=disp_field.device).view(1,3,1,1,1)
-    dt = 1./time_steps
-
-    with torch.no_grad():
-        identity = F.affine_grid(torch.eye(3,4).unsqueeze(0),(1,1,D,H,W), align_corners=True).permute(0,4,1,2,3).to(disp_field)
-        if ensure_inverse_consistency:
-            out_disp_field = (disp_field/dimension_correction/(2**time_steps)*dt).clone()
-            out_inverse_disp_field = (inverse_disp_field/dimension_correction/(2**time_steps)*dt).clone()
-
-            for _ in range(time_steps if not iter_steps_override else iter_steps_override):
-                ds = out_disp_field.clone()
-                inverse_ds = out_inverse_disp_field.clone()
-                out_disp_field = \
-                    +0.5 * ds \
-                    -0.5 * F.grid_sample(inverse_ds, (identity + ds).permute(0,2,3,4,1), padding_mode='border', align_corners=True)
-
-                out_inverse_disp_field = \
-                    +0.5 * inverse_ds \
-                    -0.5 * F.grid_sample(ds, (identity + inverse_ds).permute(0,2,3,4,1), padding_mode='border', align_corners=True)
-            out_disp_field = out_disp_field * 2**time_steps * dimension_correction
-            out_inverse_disp_field = out_inverse_disp_field * 2**time_steps * dimension_correction
-
-        else:
-            # https://github.com/cwmok/LapIRN/blob/d8f96770a704b1f190955cc26297c7b01a270b0a/Code/miccai2020_model_stage.py#L761
-
-            ds_dt = disp_field/dimension_correction/(2**time_steps) # velocity = ds/dt
-            inverse_ds_dt = inverse_disp_field/dimension_correction/(2**time_steps)
-            ds = ds_dt*dt
-            inverse_ds = inverse_ds_dt*dt
-
-            for _ in range(time_steps if not iter_steps_override else iter_steps_override):
-                ds = ds + F.grid_sample(ds, (identity + ds).permute(0,2,3,4,1), mode='bilinear', padding_mode="zeros", align_corners=True)
-                inverse_ds = inverse_ds + F.grid_sample(inverse_ds, (identity + inverse_ds).permute(0,2,3,4,1), mode='bilinear', padding_mode="zeros", align_corners=True)
-
-            out_disp_field = ds * dimension_correction
-            out_inverse_disp_field = inverse_ds * dimension_correction
-
-    return out_disp_field, out_inverse_disp_field
-
-
-
-def get_disp_field(batch_num, size_3d, factor=0.1, interpolation_factor=5, device='cpu'):
-    field = get_rf_field(batch_num,size_3d, alternating_fields=False, num_fields=3, interpolation_factor=interpolation_factor, device=device)
-    STEPS = 5
-    disp_field, inverse_disp_field = calc_consistent_diffeomorphic_field(
-        field*factor,
-        torch.zeros_like(field),
-        STEPS,
-        ensure_inverse_consistency=True
-    )
-    return disp_field.permute(0,2,3,4,1), inverse_disp_field.permute(0,2,3,4,1)
-
-
-# %% [markdown]
-# # Define AUG functions
-
-# %%
-
-def get_rand_affine(batch_size, strength=0.05, flip=False):
-    affine = torch.cat(
-        (
-            torch.randn(batch_size, 3, 4) * strength + torch.eye(3, 4).unsqueeze(0),
-            torch.tensor([0, 0, 0, 1]).view(1, 1, 4).repeat(batch_size, 1, 1),
-        ),
-        1,
-    )
-
-    if flip:
-        flip_affine = torch.diag(torch.cat([(2*(torch.rand(3) > 0.5).float()-1), torch.tensor([1.])]))
-        affine = affine @ flip_affine
-    return affine[:,:3], affine.inverse()[:,:3]
-
-def filter1D(img, weight, dim, padding_mode='replicate'):
-    B, C, D, H, W = img.shape
-    N = weight.shape[0]
-
-    padding = torch.zeros(6,)
-    padding[[4 - 2 * dim, 5 - 2 * dim]] = N//2
-    padding = padding.long().tolist()
-
-    view = torch.ones(5,)
-    view[dim + 2] = -1
-    view = view.long().tolist()
-
-    return F.conv3d(F.pad(img.view(B*C, 1, D, H, W), padding, mode=padding_mode), weight.view(view)).view(B, C, D, H, W)
-
-
-# TODO move into mind
-def smooth(img, sigma):
-    device = img.device
-
-    sigma = torch.tensor([sigma], device=device)
-    N = torch.ceil(sigma * 3.0 / 2.0).long().item() * 2 + 1
-
-    weight = torch.exp(-torch.pow(torch.linspace(-(N // 2), N // 2, N, device=device), 2) / (2 * torch.pow(sigma, 2)))
-    weight /= weight.sum()
-
-    img = filter1D(img, weight, 0)
-    img = filter1D(img, weight, 1)
-    img = filter1D(img, weight, 2)
-
-    return img
-
-
-
-def pdist(x, p=2):
-    if p==1:
-        dist = torch.abs(x.unsqueeze(2) - x.unsqueeze(1)).sum(dim=3)
-    elif p==2:
-        xx = (x**2).sum(dim=2).unsqueeze(2)
-        yy = xx.permute(0, 2, 1)
-        dist = xx + yy - 2.0 * torch.bmm(x, x.permute(0, 2, 1))
-        dist[:, torch.arange(dist.shape[1]), torch.arange(dist.shape[2])] = 0
-    return dist
-
-
-
-class MIND3D(torch.nn.Module):
-    def __init__(self, delta=1, sigma=1, randn_weighting=0.05) -> None:
-        super().__init__()
-        self.delta = delta
-        self.sigma = sigma
-        self.out_channels = 12
-        # define start and end locations for self-similarity pattern
-        six_neighbourhood = torch.tensor([[0, 1, 1],
-                                        [1, 1, 0],
-                                        [1, 0, 1],
-                                        [1, 1, 2],
-                                        [2, 1, 1],
-                                        [1, 2, 1]], dtype=torch.float)
-
-        # squared distances
-        dist = pdist(six_neighbourhood.unsqueeze(0)).squeeze(0)
-
-        # define comparison mask
-        x, y = torch.meshgrid(torch.arange(6), torch.arange(6), indexing='ij')
-        mask = ((x > y).view(-1) & (dist == 2).view(-1))
-
-        # build kernel
-        idx_shift1 = six_neighbourhood.unsqueeze(1).repeat(1,6,1).view(-1,3)[mask, :].long()
-        idx_shift2 = six_neighbourhood.unsqueeze(0).repeat(6,1,1).view(-1,3)[mask, :].long()
-        mshift1 = torch.zeros((12, 1, 3, 3, 3))
-        mshift1.view(-1)[torch.arange(12) * 27 + idx_shift1[:,0] * 9 + idx_shift1[:, 1] * 3 + idx_shift1[:, 2]] = 1
-        mshift2 = torch.zeros((12, 1, 3, 3, 3))
-        mshift2.view(-1)[torch.arange(12) * 27 + idx_shift2[:,0] * 9 + idx_shift2[:, 1] * 3 + idx_shift2[:, 2]] = 1
-        self.rpad = nn.ReplicationPad3d(delta)
-        self.mshift1 = mshift1
-        self.mshift2 = mshift2
-        self.randn_weighting = randn_weighting
-
-    def forward(self, img):
-        # compute patch-ssd
-        device = img.device
-
-        edge_selection = (
-            F.conv3d(self.rpad(img), self.mshift1.to(device), dilation=self.delta)
-            - F.conv3d(self.rpad(img), self.mshift2.to(device), dilation=self.delta)
-        )
-
-        edge_selection = edge_selection + self.randn_weighting * torch.randn_like(edge_selection)
-        ssd = smooth(edge_selection ** 2, self.sigma)
-
-        # MIND equation
-        mind = ssd - torch.min(ssd, 1, keepdim=True)[0]
-        mind_var = torch.mean(mind, 1, keepdim=True)
-        mind_var = torch.clamp(mind_var, mind_var.mean() * 0.001, mind_var.mean() * 1000)
-        mind /= mind_var
-        mind = torch.exp(-mind)
-
-        return mind
-
-
-def gin_aug(input):
-    enable_internal_augmentation()
-    input = gin_hook(None, input)
-    disable_internal_augmentation()
-    return input
-
-class GinMINDAug():
-    def __init__(self):
-        super().__init__()
-        self.mind_fn = MIND3D()
-
-    def __call__(self, input):
-        return self.mind_fn(gin_aug(input))
+from dg_tta.torch_utils import load_batch_train
+from dg_tta.torch_utils import soft_dice_loss
+from dg_tta.torch_utils import fix_all, release_all, release_norms
+from dg_tta.augmentation_utils import get_disp_field
+from dg_tta.mind import MIND3D
 
 
 # %%
@@ -557,44 +182,6 @@ def run_inference(tta_data, network, all_tta_parameter_paths,
 # # Pre/Postprocessing methods
 
 # %%
-import functools
-def get_named_layers_leaves(module):
-    """ Returns all leaf layers of a pytorch module and a keychain as identifier.
-        e.g.
-        ...
-        ('features.0.5', nn.ReLU())
-        ...
-        ('classifier.0', nn.BatchNorm2D())
-        ('classifier.1', nn.Linear())
-    """
-
-    return [(keychain, sub_mod) for keychain, sub_mod in list(module.named_modules()) if not next(sub_mod.children(), None)]
-
-
-
-MOD_GET_FN = lambda self, key: self[int(key)] if isinstance(self, nn.Sequential) \
-                                              else getattr(self, key)
-
-def get_module_data(module, keychain):
-    """Retrieves any data inside a pytorch module for a given keychain.
-       Use get_named_layers_leaves(module) to retrieve valid keychains for layers.
-    """
-
-    return functools.reduce(MOD_GET_FN, keychain.split('.'), module)
-
-
-
-def set_module_data(module, keychain, data):
-    """Replaces any data inside a pytorch module for a given keychain.
-       Use get_named_layers_leaves(module) to retrieve valid keychains for layers.
-    """
-    key_list = keychain.split('.')
-    root = functools.reduce(MOD_GET_FN, key_list[:-1], module)
-    leaf = key_list[-1]
-    if isinstance(root, nn.Sequential):
-        root[int(leaf)] = data
-    else:
-        setattr(root, leaf, data)
 
 
 # %%
@@ -656,7 +243,7 @@ def ts_myo_spine_postprocessing(output_folder):
         nib.save(nib.Nifti1Image(masked_prediction.int().numpy(),
                                  affine=prediction_nii.affine), prediction_path)
 
-
+from dg_tta.torch_utils import get_module_data, set_module_data
 
 def prepare_mind_layers(model):
     # TODO rename this function
@@ -870,6 +457,8 @@ def get_train_test_label_mapping(config_dict):
 
 print(get_train_test_label_mapping(CONFIG_DICT))
 
+from dg_tta.augmentation_utils import gin_aug, GinMINDAug
+
 # Remove hardcoded values
 intensity_aug_function_dict = {
     'NNUNET': lambda img: img,
@@ -916,21 +505,7 @@ train_data_model_dict = dict(
     MMWHS_CT = NNUNET_BASE_DIR + "nnUNetV2_results/Dataset657_MMWHS_CT_RESAMPLE_ONLY",
 )
 
-# %% [markdown]
-# # TTA routine
 
-# %%
-
-def enable_internal_augmentation():
-    if '--tr_disable_internal_augmentation' in sys.argv:
-        sys.argv.remove('--tr_disable_internal_augmentation')
-
-def disable_internal_augmentation():
-    if not '--tr_disable_internal_augmentation' in sys.argv:
-        sys.argv.append('--tr_disable_internal_augmentation')
-
-def check_internal_augmentation_disabled():
-    assert '--tr_disable_internal_augmentation' in sys.argv
 
 def get_model_from_network(config, network, parameters=None):
     model = deepcopy(network)
@@ -1005,7 +580,9 @@ def get_parameters_save_path(save_path, ofile, ensemble_idx, train_on_all_test_s
     tta_parameters_save_path = save_path / f"{ofile}__ensemble_idx_{ensemble_idx}_tta_parameters.pt"
     return tta_parameters_save_path
 
-def tta_routine(config, save_path, evaluated_labels, train_test_label_mapping, run_name=None, debug=False):
+from dg_tta.augmentation_utils import disable_internal_augmentation, check_internal_augmentation_disabled, get_rand_affine
+
+def tta_main(config, save_path, evaluated_labels, train_test_label_mapping, run_name=None, debug=False):
 
     # Load model
     base_models_path = Path(train_data_model_dict[config['train_data']])
@@ -1049,7 +626,7 @@ def tta_routine(config, save_path, evaluated_labels, train_test_label_mapping, r
     else:
         sample_range = trange(num_samples, desc='sample')
 
-    disable_internal_augmentation()
+    disable_internal_augmentation() # TODO find a better way do enable-disable internal trainer augmentation
 
     for smp_idx in sample_range:
 
@@ -1217,7 +794,7 @@ def tta_routine(config, save_path, evaluated_labels, train_test_label_mapping, r
                     sm_a = target_a.softmax(1) * common_content_mask
                     sm_b = target_b.softmax(1) * common_content_mask
 
-                    loss = 1 - soft_dice(sm_a, sm_b)[:,START_CLASS:].mean()
+                    loss = 1 - soft_dice_loss(sm_a, sm_b)[:,START_CLASS:].mean()
 
                     loss_accum = loss / ACCUM
                     step_losses.append(loss.detach().cpu())
@@ -1379,7 +956,7 @@ def wandb_run(config_dict):
         mode=config_dict['wandb_mode'], config=config_dict, project=PROJECT_NAME) as run:
         config = wandb.config
         run.name = f"{now_str}_{run.name}"
-        tta_routine(config, TTA_OUTPUT_DIR, evaluated_labels, train_test_label_mapping, run.name, debug=False)
+        tta_main(config, TTA_OUTPUT_DIR, evaluated_labels, train_test_label_mapping, run.name, debug=False)
     wandb.finish()
     torch.cuda.empty_cache()
 
@@ -1396,7 +973,7 @@ if False:
     if debug_path.is_dir():
         shutil.rmtree(debug_path)
 
-    tta_routine(CONFIG_DICT, NNUNET_BASE_DIR + "nnUNetV2_TTA_results",
+    tta_main(CONFIG_DICT, NNUNET_BASE_DIR + "nnUNetV2_TTA_results",
                 get_evaluated_labels(CONFIG_DICT),
                 get_train_test_label_mapping(CONFIG_DICT),
                 'debug', debug=False)
@@ -1416,7 +993,7 @@ def wandb_sweep_run(config_dict):
         mode=config_dict['wandb_mode']) as run:
         config = wandb.config
         run.name = f"{now_str}_{run.name}"
-        tta_routine(config, TTA_OUTPUT_DIR, run.name, debug=False)
+        tta_main(config, TTA_OUTPUT_DIR, run.name, debug=False)
     wandb.finish()
     torch.cuda.empty_cache()
 
