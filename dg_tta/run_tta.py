@@ -1,17 +1,3 @@
-# ---
-# jupyter:
-#   jupytext:
-#     formats: ipynb,py:percent
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.15.0
-#   kernelspec:
-#     display_name: Python 3 (ipykernel)
-#     language: python
-#     name: python3
-# ---
 
 # %%
 
@@ -19,7 +5,7 @@ NNUNET_BASE_DIR = '/home/weihsbach/storage/staff/christianweihsbach/nnunet/'
 import os
 os.environ['nnUNet_raw'] = NNUNET_BASE_DIR + "nnUNetV2_raw"
 os.environ['nnUNet_preprocessed'] = NNUNET_BASE_DIR + "nnUNetV2_preprocessed"
-os.environ['nnUNet_results'] = NNUNET_BASE_DIR + "nnUNetV2_results"
+os.environ['nnUNet_results'] = NNUNET_BASE_DIR + "nnUNetV2_results" # TODO check nnunet paths
 
 import torch
 from nnunetv2.training.nnUNetTrainer.variants.mdl_group_variants.nnUNetTrainer_GIN import gin_hook
@@ -55,47 +41,48 @@ from collections import defaultdict
 os.environ.update(get_vars('*'))
 
 # %%
-def localNorm(train_img):
-    K = 11
-    kw = (K - 1) // 2
-    kernel_norm = F.avg_pool2d(torch.ones_like(train_img), K, stride=1, padding=kw)
-    img_mean = F.avg_pool2d(train_img, K, stride=1, padding=kw) / kernel_norm
+# def localNorm(train_img):
+#     K = 11
+#     kw = (K - 1) // 2
+#     kernel_norm = F.avg_pool2d(torch.ones_like(train_img), K, stride=1, padding=kw)
+#     img_mean = F.avg_pool2d(train_img, K, stride=1, padding=kw) / kernel_norm
 
-    img_var = (
-        F.avg_pool2d(train_img**2, K, stride=1, padding=kw) / kernel_norm
-        - img_mean**2
-    )
-    img_norm = (train_img - img_mean) / torch.sqrt(img_var + 0.1)
-    return img_norm
+#     img_var = (
+#         F.avg_pool2d(train_img**2, K, stride=1, padding=kw) / kernel_norm
+#         - img_mean**2
+#     )
+#     img_norm = (train_img - img_mean) / torch.sqrt(img_var + 0.1)
+#     return img_norm
 
 
-def localNorm3d(train_img):
-    K = 11
-    kw = (K - 1) // 2
+# def localNorm3d(train_img):
+#     K = 11
+#     kw = (K - 1) // 2
 
-    kernel_norm = F.avg_pool3d(torch.ones_like(train_img), K, stride=1, padding=kw)
-    img_mean = F.avg_pool3d(train_img, K, stride=1, padding=kw) / kernel_norm
+#     kernel_norm = F.avg_pool3d(torch.ones_like(train_img), K, stride=1, padding=kw)
+#     img_mean = F.avg_pool3d(train_img, K, stride=1, padding=kw) / kernel_norm
 
-    img_var = (
-        F.avg_pool3d(train_img**2, K, stride=1, padding=kw) / kernel_norm
-        - img_mean**2
-    )
-    img_norm = (train_img - img_mean) / torch.sqrt(img_var + 0.1)
-    return img_norm
+#     img_var = (
+#         F.avg_pool3d(train_img**2, K, stride=1, padding=kw) / kernel_norm
+#         - img_mean**2
+#     )
+#     img_norm = (train_img - img_mean) / torch.sqrt(img_var + 0.1)
+#     return img_norm
 
 
 # %%
-def get_centers(probs):
-    B,C,D,H,W = probs.shape
-    prob_sum = probs.sum((-3,-2,-1))
-    d_centers = (probs * torch.arange(D, device=probs.device).view(1,1,D,1,1)).sum((-3,-2,-1))
-    h_centers = (probs * torch.arange(H, device=probs.device).view(1,1,1,H,1)).sum((-3,-2,-1))
-    w_centers = (probs * torch.arange(W, device=probs.device).view(1,1,1,1,W)).sum((-3,-2,-1))
+# def get_centers(probs):
+#     B,C,D,H,W = probs.shape
+#     prob_sum = probs.sum((-3,-2,-1))
+#     d_centers = (probs * torch.arange(D, device=probs.device).view(1,1,D,1,1)).sum((-3,-2,-1))
+#     h_centers = (probs * torch.arange(H, device=probs.device).view(1,1,1,H,1)).sum((-3,-2,-1))
+#     w_centers = (probs * torch.arange(W, device=probs.device).view(1,1,1,1,W)).sum((-3,-2,-1))
 
-    centers = torch.stack([d_centers, h_centers, w_centers], dim=-1)
-    centers = centers / prob_sum.view(B,C,1)
-    return centers
+#     centers = torch.stack([d_centers, h_centers, w_centers], dim=-1)
+#     centers = centers / prob_sum.view(B,C,1)
+#     return centers
 
+# TODO clean functions
 
 # %%
 def dice_coeff(outputs, labels, max_label):
@@ -223,6 +210,7 @@ def load_batch_train(train_data, batch_idx, patch_size, affine_rand=0.05, use_rf
 # %%
 def soft_dice(fixed,moving):
     B,C,D,H,W = fixed.shape
+    # TODO Add d parameter
 
     nominator = (4. * fixed*moving).reshape(B,-1,D*H*W).mean(2)
     denominator = ((fixed + moving)**2).reshape(B,-1,D*H*W).mean(2)
@@ -238,7 +226,7 @@ def soft_dice(fixed,moving):
 
 
 # %%
-
+# TODO move into torch utils
 def fix_all(m):
     for p in m.parameters():
         p.requires_grad_(False)
@@ -348,7 +336,7 @@ def filter1D(img, weight, dim, padding_mode='replicate'):
     return F.conv3d(F.pad(img.view(B*C, 1, D, H, W), padding, mode=padding_mode), weight.view(view)).view(B, C, D, H, W)
 
 
-
+# TODO move into mind
 def smooth(img, sigma):
     device = img.device
 
@@ -450,7 +438,7 @@ class GinMINDAug():
 
 # %%
 def load_tta_data(task_raw_path, configuration_manager, plans_manager, dataset_json, fixed_sample_idx):
-
+    # TODO: enable loading of differently sized images
     task_raw_path = Path(task_raw_path)
 
     folder_with_segs_from_prev_stage = task_raw_path / "labelsTs"
@@ -536,7 +524,7 @@ def load_model(model_training_output_path, fold):
     plans_manager, dataset_json, network, trainer_name = \
         load_trained_model_for_inference(model_training_output_path, use_folds, checkpoint_name)
 
-    patch_size = plans_manager.get_configuration('3d_fullres').patch_size
+    patch_size = plans_manager.get_configuration('3d_fullres').patch_size # TODO: make configuration a setting
 
     return network, parameters, patch_size, configuration_manager, inference_allowed_mirroring_axes, plans_manager, dataset_json
 
@@ -610,6 +598,7 @@ def set_module_data(module, keychain, data):
 
 
 # %%
+# TODO find a way to have these functions in a separate definition file
 def ts_amos_pre_forward_hook_fn(input_data):
     if isinstance(input_data, tuple):
         input_data = input_data[0]
@@ -670,6 +659,7 @@ def ts_myo_spine_postprocessing(output_folder):
 
 
 def prepare_mind_layers(model):
+    # TODO rename this function
     # Prepare MIND model
     first_layer = get_module_data(model, 'encoder.stages.0.0.convs.0.conv')
     new_first_layer = torch.nn.Conv3d(12, 32, kernel_size=(3,3,3), stride=(1,1,1), padding=(1,1,1))
@@ -686,6 +676,7 @@ def prepare_mind_layers(model):
 
 # %%
 def generate_label_mapping(source_label_dict, target_label_dict):
+    # TODO permit user definition an alternative mapping dict per task
     assert all([isinstance(k, str) for k in source_label_dict.keys()])
     assert all([isinstance(k, str) for k in target_label_dict.keys()])
     assert set(source_label_dict.keys()).intersection(target_label_dict.keys()), "There are no intersecting label names in given dicts."
@@ -737,6 +728,7 @@ def map_label(label, map_idxs, input_format):
 # ## Dataset dicts (changed names to get automatic mapping right)
 
 # %%
+# TODO remove these hardcoded dicts
 amos_bcv_dict = {
     "background": 0,
     "spleen": 1,
@@ -816,6 +808,7 @@ dataset_labels_dict = dict(
 
 # %%
 
+# TODO remove these hardcoded definitions
 EVALUATED_LABELS_DICT = {
     'AMOS->BCV': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
     'BCV->AMOS': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
@@ -836,6 +829,7 @@ EVALUATED_LABELS_DICT = {
     'TotalSegmentator->MyoSegmenTUM_spine': ["background", "L1", "L2", "L3", "L4", "L5"],
 }
 
+# TODO make config standard and exposable
 CONFIG_DICT = dict(
     train_data='BCV',
     fold='0',
@@ -859,6 +853,7 @@ CONFIG_DICT = dict(
 )
 
 def update_data_mapping_config(config_dict):
+    # TODO: find a better solution for this string thing
     from_to_str =  f"{config_dict['train_data']}->{config_dict['tta_data']}"
     config_dict['train_tta_data_map'] = from_to_str
     return config_dict
@@ -875,6 +870,7 @@ def get_train_test_label_mapping(config_dict):
 
 print(get_train_test_label_mapping(CONFIG_DICT))
 
+# Remove hardcoded values
 intensity_aug_function_dict = {
     'NNUNET': lambda img: img,
     'GIN': gin_aug,
@@ -1024,6 +1020,7 @@ def tta_routine(config, save_path, evaluated_labels, train_test_label_mapping, r
     ensemble_count = config['ensemble_count']
     num_samples = tta_imgs_segs.shape[0]
 
+    # TODO make these parameters configurable
     B = 1
     ACCUM = 16
     train_start_epoch = 1
@@ -1126,7 +1123,7 @@ def tta_routine(config, save_path, evaluated_labels, train_test_label_mapping, r
                             tta_sample, torch.randperm(tta_sample.shape[0])[:B], patch_size, affine_rand=0, use_rf=False,
                             fixed_patch_idx=None
                         )
-
+                    # TODO: split this into two function calls
                     # Augment branch a
                     grad_context_a = nullcontext if config['have_grad_in'] in ['branch_a', 'both'] else torch.no_grad
                     with grad_context_a():
@@ -1265,6 +1262,7 @@ def tta_routine(config, save_path, evaluated_labels, train_test_label_mapping, r
                 if wandb.run is not None: wandb.log({f'scores/eval_dice__{ofile}__ensemble_idx_{ensemble_idx}': eval_dices[epoch]}, step=global_idx)
 
             # Print graphic per ensemble
+            # TODO: Externalises / improve the plotting
             plt.close()
             plt.cla()
             plt.clf()
@@ -1371,6 +1369,7 @@ TTA_OUTPUT_DIR = NNUNET_BASE_DIR + "nnUNetV2_TTA_results"
 PROJECT_NAME = 'nnunet_tta'
 now_str = datetime.now().strftime("%Y%m%d__%H_%M_%S")
 
+# TODO find a solution for auto-naming
 def wandb_run(config_dict):
     config_dict = update_data_mapping_config(config_dict)
     evaluated_labels = get_evaluated_labels(config_dict)
@@ -1389,6 +1388,7 @@ def wandb_run(config_dict):
 # # Run a single run
 
 # %%
+# TODO remove those debugging lines
 if False:
     CONFIG_DICT = update_data_mapping_config(CONFIG_DICT)
 
@@ -1410,6 +1410,7 @@ if False:
 # # Run sweep
 
 # %%
+# TODO  Move this to log utils
 def wandb_sweep_run(config_dict):
     with wandb.init(settings=wandb.Settings(start_method="thread"),
         mode=config_dict['wandb_mode']) as run:
@@ -1516,61 +1517,6 @@ if True:
         wandb_run(updated_dict)
 
 
-# %%
-# %matplotlib inline
-# image_reader_writer = SimpleITKIO()
-# ts_image, sitk_stuff = image_reader_writer.read_images([NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset505_TS104/imagesTr/s0050_0000.nii.gz"])
-# ts_seg, _ = image_reader_writer.read_seg([NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset505_TS104/labelsTr/s0050.nii.gz"])
-# ts_seg = map_label(torch.as_tensor(ts_seg), get_map_idxs(train_test_label_mapping, evaluated_labels, input_type='train_labels'), input_format='argmaxed')
-# ts_seg[ts_seg == 0.] = float('nan')
 
-# mmwhs_image, sitk_stuff = image_reader_writer.read_images([NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset656_MMWHS_RESAMPLE_ONLY/imagesTs/mr_train_1012_resampled_0000.nii.gz"])
-# mmwhs_seg, _ = image_reader_writer.read_seg([NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset656_MMWHS_RESAMPLE_ONLY/labelsTs/mr_train_1012_resampled.nii.gz"])
-# mmwhs_seg = map_label(torch.as_tensor(mmwhs_seg), get_map_idxs(train_test_label_mapping, evaluated_labels, input_type='test_labels'), input_format='argmaxed')
-# mmwhs_seg[mmwhs_seg == 0.] = float('nan')
-
-# ts_offset = +85
-# ts_image = torch.as_tensor(ts_image).transpose(-3,-2).flip([-3,-1])
-# ts_seg = ts_seg.transpose(-3,-2).flip([-3,-1])
-
-# plt.imshow(torch.as_tensor(ts_image)[0,...,ts_image.shape[-2]//2+ts_offset, :], 'gray')
-# plt.imshow(torch.as_tensor(ts_seg)[0,...,ts_seg.shape[-2]//2+ts_offset, :], 'Set3', alpha=.5, interpolation='none')
-# plt.show()
-
-
-# mmwhs_offset = ts_offset-90
-# plt.imshow(torch.as_tensor(mmwhs_image)[0,...,mmwhs_image.shape[-2]//2+mmwhs_offset,:], 'gray')
-# plt.imshow(torch.as_tensor(mmwhs_seg)[0,...,mmwhs_seg.shape[-2]//2+mmwhs_offset,:], 'Set3', alpha=.5, interpolation='none')
-# plt.show()
-
-# %%
-# %matplotlib inline
-# image_reader_writer = SimpleITKIO()
-# ts_image, sitk_stuff = image_reader_writer.read_images([NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset505_TS104/imagesTr/s0050_0000.nii.gz"])
-# ts_seg, _ = image_reader_writer.read_seg([NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset505_TS104/labelsTr/s0050.nii.gz"])
-# ts_seg = map_label(torch.as_tensor(ts_seg), get_map_idxs(train_test_label_mapping, evaluated_labels, input_type='train_labels'), input_format='argmaxed')
-# ts_seg[ts_seg == 0.] = float('nan')
-
-# myo_segment_tum_spine_image, sitk_stuff = image_reader_writer.read_images([NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset810_MyoSegmenTUM_spine/imagesTs/myo_spine_04_fat_0000.nii.gz"])
-# myo_segment_tum_spine_seg, _ = image_reader_writer.read_seg([NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset810_MyoSegmenTUM_spine/labelsTs/myo_spine_04_fat.nii.gz"])
-# myo_segment_tum_spine_seg = map_label(torch.as_tensor(myo_segment_tum_spine_seg), get_map_idxs(train_test_label_mapping, evaluated_labels, input_type='test_labels'), input_format='argmaxed')
-# myo_segment_tum_spine_seg[myo_segment_tum_spine_seg == 0.] = float('nan')
-
-# ts_offset = 0
-
-# plt.imshow(torch.as_tensor(ts_image)[0,..., ts_image.shape[-1]//2+ts_offset], 'gray')
-# plt.imshow(torch.as_tensor(ts_seg)[0,..., ts_seg.shape[-1]//2+ts_offset], 'Set3', alpha=.5, interpolation='none')
-# plt.show()
-
-# myo_segment_tum_spine_image = torch.as_tensor(myo_segment_tum_spine_image).flip([-2,-3])
-# myo_segment_tum_spine_seg = myo_segment_tum_spine_seg.flip([-2,-3])
-# myo_segment_tum_spine_offset = 0
-
-# plt.imshow(torch.as_tensor(myo_segment_tum_spine_image)[0,...,myo_segment_tum_spine_image.shape[-1]//2+myo_segment_tum_spine_offset], 'gray')
-# plt.imshow(torch.as_tensor(myo_segment_tum_spine_seg)[0,...,myo_segment_tum_spine_seg.shape[-1]//2+myo_segment_tum_spine_offset], 'Set3', alpha=.5, interpolation='none')
-# plt.show()
-
-# plt.imshow(torch.as_tensor(myo_segment_tum_spine_image)[0,...,myo_segment_tum_spine_image.shape[-1]//2+myo_segment_tum_spine_offset], 'gray')
-# plt.show()
-
-# %%
+if __name__ == "__main__":
+    tta_main()
