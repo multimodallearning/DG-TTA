@@ -1,6 +1,7 @@
 
 import subprocess
 import shutil
+import inspect
 import json
 import datetime
 import wandb
@@ -31,6 +32,28 @@ TEMPLATE_CONFIG = dict(
 
     wandb_mode='disabled',
 )
+
+
+
+class ModifierFunctions():
+    def __init__(self):
+        pass
+    @staticmethod
+
+    def modify_tta_input_fn(image: torch.Tensor):
+        # This function will be called on the input that is fed to the model
+        return image
+
+    @staticmethod
+    def modfify_tta_output_fn(pred_label: torch.Tensor):
+        # This function will be called directly after model prediction
+        return pred_label
+
+    @staticmethod
+    def modify_tta_output_after_mapping_fn(mapped_label: torch.Tensor):
+        # This function will be caled after model prediction when labels are mapped
+        # to the target label numbers/ids.
+        return mapped_label
 
 
 
@@ -148,6 +171,13 @@ def prepare_tta(pretrained_task_id, tta_task_id,
 
     with open(plan_dir / "tta_plan.json", 'w') as f:
         json.dump(initial_config, f, indent=4)
+
+    # Dump modifier functions
+    modifier_src = inspect.getsource(ModifierFunctions)
+
+    with open(plan_dir / "modifier_functions.py", 'w') as f:
+        f.write("import torch\n\n")
+        f.write(modifier_src)
 
 
 
