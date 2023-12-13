@@ -9,9 +9,29 @@ import torch
 from nnunetv2.paths import nnUNet_raw, nnUNet_results
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 
-TEMPLATE_CONFIG = {
+TEMPLATE_CONFIG = dict(
+    pretrainer='nnUNetTrainer_GIN_MIND',
+    pretrained_config='3d_fullres',
+    pretrained_fold='0',
+    intensity_aug_function='GIN',
 
-}
+    tta_across_all_samples=False,
+
+    lr=1e-5,
+    fixed_sample_idx=None,
+    ensemble_count=3,
+    epochs=12,
+
+    params_with_grad='all', # all, norms, encoder
+    have_grad_in='branch_a', # ['branch_a', 'branch_b', 'both']
+    do_intensity_aug_in='none', # ['branch_a', 'branch_b', 'both', 'none']
+    do_spatial_aug_in='both', # ['branch_a', 'branch_b', 'both', 'none']
+    spatial_aug_type='affine', # ['affine', 'deformable']
+
+    wandb_mode='disabled',
+)
+
+
 
 def update_data_mapping_config(config_dict):
     # TODO: find a better solution for this string thing
