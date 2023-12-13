@@ -135,8 +135,7 @@ from copy import deepcopy
 from torch._dynamo import OptimizedModule
 import json
 
-from nnunetv2.inference.predict_from_raw_data import load_trained_model_for_inference
-from nnunet_inference import predict_from_data_iterator
+from nnunetv2.inference.predict_from_raw_data import load_trained_model_for_inference, nnUNetPredictor
 
 def load_model(model_training_output_path, fold):
 
@@ -170,7 +169,7 @@ def run_inference(tta_data, network, all_tta_parameter_paths,
         tta_parameters.extend(torch.load(_path))
 
     network = deepcopy(network)
-    return predict_from_data_iterator(tta_data, network, tta_parameters, plans_manager, configuration_manager, dataset_json,
+    return nnUNetPredictor.predict_from_data_iterator(tta_data, network, tta_parameters, plans_manager, configuration_manager, dataset_json,
                                 inference_allowed_mirroring_axes, tile_step_size, use_gaussian, use_mirroring,
                                 perform_everything_on_gpu, verbose, save_probabilities,
                                 num_processes_segmentation_export, device)
@@ -560,7 +559,7 @@ def get_parameters_save_path(save_path, ofile, ensemble_idx, train_on_all_test_s
     tta_parameters_save_path = save_path / f"{ofile}__ensemble_idx_{ensemble_idx}_tta_parameters.pt"
     return tta_parameters_save_path
 
-from dg_tta.augmentation_utils import disable_internal_augmentation, check_internal_augmentation_disabled, get_rand_affine
+from dg_tta.tta.augmentation_utils import disable_internal_augmentation, check_internal_augmentation_disabled, get_rand_affine
 
 def tta_main(config, save_path, evaluated_labels, train_test_label_mapping, run_name=None, debug=False):
 

@@ -1,8 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from nnunetv2.training.nnUNetTrainer.variants.mdl_group_variants.nnUNetTrainer_GIN import gin_hook # TODO move gin hook, give credit to paper
-
+from dg_tta.pretraining.nnUNetTrainer_GIN import gin_hook
 
 def get_rf_field(num_batch, size_3d, interpolation_factor=4, num_fields=4, alternating_fields=True, device='device'):
     # TODO refactor
