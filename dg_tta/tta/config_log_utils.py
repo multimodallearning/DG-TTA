@@ -97,8 +97,10 @@ import os
 
 def get_tta_folders(pretrained_task_id, tta_task_id):
     root_dir = Path(os.environ['DG_TTA_ROOT'])
+
     # Get dataset names
     tta_task_name = maybe_convert_to_dataset_name(tta_task_id)
+
     if isinstance(pretrained_task_id, int):
         pretrained_task_name = maybe_convert_to_dataset_name(pretrained_task_id)
     else:
@@ -109,7 +111,9 @@ def get_tta_folders(pretrained_task_id, tta_task_id):
     plan_dir = (root_dir / 'plans' / map_folder)
     results_dir = (root_dir / 'results' / map_folder)
 
-    return plan_dir, results_dir, pretrained_task_name, tta_task_name
+    tta_data_dir = Path(nnUNet_raw, tta_task_name)
+
+    return tta_data_dir, plan_dir, results_dir, pretrained_task_name, tta_task_name
 
 def prepare_tta(pretrained_task_id, tta_task_id,
                 pretrainer=None, pretrained_config=None, pretrained_fold=None):
@@ -130,7 +134,7 @@ def prepare_tta(pretrained_task_id, tta_task_id,
     assert root_dir.is_dir()
 
     # Create directories
-    plan_dir, results_dir, pretrained_task_name, tta_task_name = get_tta_folders(pretrained_task_id, tta_task_id)
+    _, plan_dir, results_dir, pretrained_task_name, tta_task_name = get_tta_folders(pretrained_task_id, tta_task_id)
 
     shutil.rmtree(plan_dir, ignore_errors=True)
     plan_dir.mkdir(exist_ok=True, parents=True)

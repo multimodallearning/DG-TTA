@@ -8,7 +8,7 @@ from copy import deepcopy
 from torch._dynamo import OptimizedModule
 import json
 from dg_tta.tta.config_log_utils import get_tta_folders
-
+import nnunetv2
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 import torch
 from datetime import datetime
@@ -34,6 +34,7 @@ import sys
 import matplotlib.pyplot as plt
 from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder_simple
 import nibabel as nib
+from dg_tta.__build__ import inject_dg_trainers_into_nnunet
 
 import numpy as np
 from contextlib import nullcontext
@@ -70,20 +71,17 @@ def dice_coeff(outputs, labels, max_label):
 
 
 # %%
-def load_tta_data(task_raw_path, configuration_manager, plans_manager, dataset_json, fixed_sample_idx):
+def load_tta_data(task_raw_path, predictor, fixed_sample_idx):
     # TODO: enable loading of differently sized images
     task_raw_path = Path(task_raw_path)
 
-    folder_with_segs_from_prev_stage = task_raw_path / "labelsTs"
+    folder_with_segs_from_prev_stage = task_raw_path / "labelsTs" # TODO make this a setting
     overwrite = True
     part_id = 0
     num_parts = 1
     save_probabilities = False
-    num_processes_preprocessing = 0
-    device = torch.device("cuda")
-    verbose = False
+    num_processes_preprocessing = 1 # TODO make this a setting
     output_folder_or_list_of_truncated_output_files = ""
-    FILE_ENDING = ".nii.gz"
 
     list_of_lists_or_source_folder = Path(task_raw_path / "imagesTs")
 
@@ -99,27 +97,21 @@ def load_tta_data(task_raw_path, configuration_manager, plans_manager, dataset_j
         list_of_lists_or_source_folder,
         output_filename_truncated,
         seg_from_prev_stage_files,
-    ) = nnUNetPredictor._manage_input_and_output_lists(
+    ) = predictor._manage_input_and_output_lists(
         list_of_lists_or_source_folder,
         output_folder_or_list_of_truncated_output_files,
-        dataset_json,
         folder_with_segs_from_prev_stage,
         overwrite,
         part_id,
         num_parts,
         save_probabilities,
     )
-
-    data_iterator = nnUNetPredictor._internal_get_data_iterator_from_lists_of_filenames(
+    nnUNetPredictor._internal_get_data_iterator_from_lists_of_filenames
+    data_iterator = predictor._internal_get_data_iterator_from_lists_of_filenames(
         list_of_lists_or_source_folder,
         seg_from_prev_stage_files,
         output_filename_truncated,
-        configuration_manager,
-        plans_manager,
-        dataset_json,
-        num_processes_preprocessing,
-        pin_memory=device.type == "cpu",
-        verbose=verbose,
+        num_processes_preprocessing
     )
 
     data = list(data_iterator)
@@ -139,18 +131,30 @@ def load_tta_data(task_raw_path, configuration_manager, plans_manager, dataset_j
 
 
 
-def load_model(model_training_output_path, fold):
+def load_model(weights_file):
 
-    use_folds = [fold] if isinstance(fold, int) else fold # We only trained one fold
+    model_training_output_path = Path(*Path(weights_file).parts[:-2])
+    fold = Path(weights_file).parts[-2].replace('fold_', '')
+    use_folds = [int(fold)] if fold.isnumeric() else fold
     checkpoint_name = "checkpoint_final.pth"
+    configuration = Path(weights_file).parts[-3].split('__')[-1]
 
-    parameters, configuration_manager, inference_allowed_mirroring_axes, \
-    plans_manager, dataset_json, network, trainer_name = \
-        nnUNetPredictor.initialize_from_trained_model_folder(model_training_output_path, use_folds, checkpoint_name)
+    device = torch.device("cuda:4") # TODO make this configurable
+    perform_everything_on_gpu = True
+    verbose = False
 
-    patch_size = plans_manager.get_configuration('3d_fullres').patch_size # TODO: make configuration a setting
+    predictor = nnUNetPredictor(perform_everything_on_gpu=perform_everything_on_gpu, device=device, verbose_preprocessing=verbose)
+    predictor.initialize_from_trained_model_folder(model_training_output_path, use_folds, checkpoint_name)
 
-    return network, parameters, patch_size, configuration_manager, inference_allowed_mirroring_axes, plans_manager, dataset_json
+    parameters = predictor.list_of_parameters
+    configuration_manager = predictor.configuration_manager
+    inference_allowed_mirroring_axes = predictor.allowed_mirroring_axes
+    plans_manager = predictor.plans_manager
+    dataset_json = predictor.dataset_json
+    network = predictor.network
+    patch_size = plans_manager.get_configuration(configuration).patch_size
+
+    return predictor, network, parameters, patch_size, configuration_manager, inference_allowed_mirroring_axes, plans_manager, dataset_json
 
 
 
@@ -563,17 +567,14 @@ def get_parameters_save_path(save_path, ofile, ensemble_idx, train_on_all_test_s
 
 
 
-def tta_main(config, save_path, evaluated_labels, train_test_label_mapping, run_name=None, debug=False):
+def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label_mapping, run_name=None, debug=False):
 
     # Load model
-    base_models_path = Path(train_data_model_dict[config['train_data']])
-    model_training_output_path = base_models_path / trainer_dict[config['trainer']]
-    network, parameters, patch_size, configuration_manager, inference_allowed_mirroring_axes, plans_manager, dataset_json = load_model(model_training_output_path, config['fold'])
+    model_training_output_path = config['pretrained_weights_file']
+    predictor, network, parameters, patch_size, configuration_manager, inference_allowed_mirroring_axes, plans_manager, dataset_json = load_model(model_training_output_path)
 
     # Load TTA data
-    target_data_path = base_data_dict[config['tta_data']]
-    tta_imgs_segs, tta_data = load_tta_data(target_data_path, configuration_manager, plans_manager, dataset_json, config['fixed_sample_idx'])
-
+    tta_imgs_segs, tta_data = load_tta_data(tta_data_dir, predictor, config['fixed_sample_idx'])
 
     ensemble_count = config['ensemble_count']
     num_samples = tta_imgs_segs.shape[0]
@@ -1020,8 +1021,6 @@ class DGTTAProgram():
                                                 pretrained_config=args.pretrained_config,
                                                 pretrained_fold=pretrained_fold)
 
-
-
     def run_tta(self):
         parser = argparse.ArgumentParser(description='Run DG-TTA')
         parser.add_argument('pretrained_task_id', help='''
@@ -1035,7 +1034,7 @@ class DGTTAProgram():
         pretrained_task_id = int(args.pretrained_task_id) \
             if args.pretrained_task_id.isnumeric() else args.pretrained_task_id
 
-        plan_dir, results_dir, pretrained_task_name, tta_task_name = get_tta_folders(pretrained_task_id, int(args.tta_task_id))
+        tta_data_dir, plan_dir, results_dir, pretrained_task_name, tta_task_name = get_tta_folders(pretrained_task_id, int(args.tta_task_id))
         save_path = results_dir / r_name
 
         with open(Path(plan_dir / 'tta_plan.json'), 'r') as f:
@@ -1052,13 +1051,14 @@ class DGTTAProgram():
 
         label_mapping = generate_label_mapping(pretrained_label_mapping, tta_task_label_mapping)
 
-        tta_main(config, save_path, optimized_labels, label_mapping, run_name=r_name, debug=False)
+        tta_main(config, tta_data_dir, save_path, optimized_labels, label_mapping, run_name=r_name, debug=False)
 
 
 
 def main():
     assert Path(os.environ.get('DG_TTA_ROOT', '_')).is_dir(), \
         "Please define an existing root directory for DG-TTA by setting DG_TTA_ROOT."
+    inject_dg_trainers_into_nnunet()
     DGTTAProgram()
 
 
