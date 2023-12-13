@@ -9,18 +9,20 @@ os.environ['nnUNet_results'] = NNUNET_BASE_DIR + "nnUNetV2_results" # TODO check
 
 import torch
 from datetime import datetime
-import wandb
+import importlib
+if importlib.util.find_spec('wandb'):
+    import wandb
 import shutil
-from nnunetv2.inference.predict_from_raw_data import (
-    manage_input_and_output_lists,
-    get_data_iterator_from_lists_of_filenames,
-)
+from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+# from nnunetv2.inference.predict_from_raw_data import (
+#     _manage_input_and_output_lists,
+#     _internal_get_data_iterator_from_lists_of_filenames,
+# )
 import json
 from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
 from pathlib import Path
 from torch._dynamo import OptimizedModule
 from pathlib import Path
-import wandb
 
 from tqdm import trange,tqdm
 import torch.nn.functional as F
@@ -30,15 +32,12 @@ import matplotlib.pyplot as plt
 from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder_simple
 import nibabel as nib
 
-from meidic_vtach_utils.run_on_recommended_cuda import get_cuda_environ_vars as get_vars
 import numpy as np
 from contextlib import nullcontext
 from pathlib import Path
 from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
 
 from collections import defaultdict
-os.environ.update(get_vars('*')) # TODO remove this line
-
 
 # %%
 def dice_coeff(outputs, labels, max_label):
@@ -53,11 +52,10 @@ def dice_coeff(outputs, labels, max_label):
         )
     return dice
 
-
-from dg_tta.torch_utils import load_batch_train
-from dg_tta.torch_utils import soft_dice_loss
-from dg_tta.torch_utils import fix_all, release_all, release_norms
-from dg_tta.augmentation_utils import get_disp_field
+from dg_tta.tta.torch_utils import load_batch_train
+from dg_tta.tta.torch_utils import soft_dice_loss
+from dg_tta.tta.torch_utils import fix_all, release_all, release_norms
+from dg_tta.tta.augmentation_utils import get_disp_field
 from dg_tta.mind import MIND3D
 
 
@@ -91,7 +89,7 @@ def load_tta_data(task_raw_path, configuration_manager, plans_manager, dataset_j
         list_of_lists_or_source_folder,
         output_filename_truncated,
         seg_from_prev_stage_files,
-    ) = manage_input_and_output_lists(
+    ) = nnUNetPredictor._manage_input_and_output_lists(
         list_of_lists_or_source_folder,
         output_folder_or_list_of_truncated_output_files,
         dataset_json,
@@ -102,7 +100,7 @@ def load_tta_data(task_raw_path, configuration_manager, plans_manager, dataset_j
         save_probabilities,
     )
 
-    data_iterator = get_data_iterator_from_lists_of_filenames(
+    data_iterator = nnUNetPredictor._internal_get_data_iterator_from_lists_of_filenames(
         list_of_lists_or_source_folder,
         seg_from_prev_stage_files,
         output_filename_truncated,
@@ -243,7 +241,7 @@ def ts_myo_spine_postprocessing(output_folder):
         nib.save(nib.Nifti1Image(masked_prediction.int().numpy(),
                                  affine=prediction_nii.affine), prediction_path)
 
-from dg_tta.torch_utils import get_module_data, set_module_data
+from dg_tta.tta.torch_utils import get_module_data, set_module_data
 
 def prepare_mind_layers(model):
     # TODO rename this function
@@ -439,25 +437,7 @@ CONFIG_DICT = dict(
     wandb_mode='online',
 )
 
-def update_data_mapping_config(config_dict):
-    # TODO: find a better solution for this string thing
-    from_to_str =  f"{config_dict['train_data']}->{config_dict['tta_data']}"
-    config_dict['train_tta_data_map'] = from_to_str
-    return config_dict
-
-def get_evaluated_labels(config_dict):
-    return EVALUATED_LABELS_DICT[config_dict['train_tta_data_map']]
-
-def get_train_test_label_mapping(config_dict):
-    train_test_label_mapping = generate_label_mapping(
-        dataset_labels_dict[config_dict['train_data']],
-        dataset_labels_dict[config_dict['tta_data']]
-    )
-    return train_test_label_mapping
-
-print(get_train_test_label_mapping(CONFIG_DICT))
-
-from dg_tta.augmentation_utils import gin_aug, GinMINDAug
+from dg_tta.tta.augmentation_utils import gin_aug, GinMINDAug
 
 # Remove hardcoded values
 intensity_aug_function_dict = {
@@ -936,29 +916,11 @@ def tta_main(config, save_path, evaluated_labels, train_test_label_mapping, run_
 
     if wandb.run is not None: wandb.log({f'scores/tta_dice_mean': final_mean_dice})
 
-# %% [markdown]
-# # Debugging
-
-# %%
-
-# %%
 TTA_OUTPUT_DIR = NNUNET_BASE_DIR + "nnUNetV2_TTA_results"
 PROJECT_NAME = 'nnunet_tta'
-now_str = datetime.now().strftime("%Y%m%d__%H_%M_%S")
 
-# TODO find a solution for auto-naming
-def wandb_run(config_dict):
-    config_dict = update_data_mapping_config(config_dict)
-    evaluated_labels = get_evaluated_labels(config_dict)
-    train_test_label_mapping = get_train_test_label_mapping(config_dict)
 
-    with wandb.init(
-        mode=config_dict['wandb_mode'], config=config_dict, project=PROJECT_NAME) as run:
-        config = wandb.config
-        run.name = f"{now_str}_{run.name}"
-        tta_main(config, TTA_OUTPUT_DIR, evaluated_labels, train_test_label_mapping, run.name, debug=False)
-    wandb.finish()
-    torch.cuda.empty_cache()
+from dg_tta.tta.config_log_utils import wandb_run
 
 
 # %% [markdown]
@@ -979,55 +941,10 @@ if False:
                 'debug', debug=False)
     sys.exit(0)
 
-# %%
-# wandb_run(CONFIG_DICT)
-
-
-# %% [markdown]
-# # Run sweep
-
-# %%
-# TODO  Move this to log utils
-def wandb_sweep_run(config_dict):
-    with wandb.init(settings=wandb.Settings(start_method="thread"),
-        mode=config_dict['wandb_mode']) as run:
-        config = wandb.config
-        run.name = f"{now_str}_{run.name}"
-        tta_main(config, TTA_OUTPUT_DIR, run.name, debug=False)
-    wandb.finish()
-    torch.cuda.empty_cache()
-
-def closure_wandb_sweep_run():
-    return wandb_sweep_run(CONFIG_DICT)
 
 
 # %%
-import copy
-from enum import Enum
-
-def clean_sweep_dict(config_dict, sweep_config_dict):
-    # Integrate all config entries into sweep_dict.parameters -> sweep overrides config
-    cp_config_dict = copy.deepcopy(dict(config_dict))
-
-    for del_key in sweep_config_dict['parameters'].keys():
-        if del_key in cp_config_dict:
-            del cp_config_dict[del_key]
-    merged_sweep_config_dict = copy.deepcopy(sweep_config_dict)
-
-    for key, value in cp_config_dict.items():
-        merged_sweep_config_dict['parameters'][key] = dict(value=value)
-
-    # Convert enum values in parameters to string. They will be identified by their numerical index otherwise
-    for key, param_dict in merged_sweep_config_dict['parameters'].items():
-        if 'value' in param_dict and isinstance(param_dict['value'], Enum):
-            param_dict['value'] = str(param_dict['value'])
-        if 'values' in param_dict:
-            param_dict['values'] = [str(elem) if isinstance(elem, Enum) else elem for elem in param_dict['values']]
-
-        merged_sweep_config_dict['parameters'][key] = param_dict
-    return merged_sweep_config_dict
-
-# %%
+# TODO externalize this
 sweep_config_dict = dict(
     method='grid',
     metric=dict(goal='maximize', name='scores/tta_dice_mean'),
@@ -1052,48 +969,64 @@ sweep_config_dict = dict(
     )
 )
 
-if False:
-    merged_sweep_config_dict = clean_sweep_dict(config_dict, sweep_config_dict)
-    sweep_id = wandb.sweep(merged_sweep_config_dict, project=PROJECT_NAME)
-    wandb.agent(sweep_id, function=closure_wandb_sweep_run)
+import argparse
+from dg_tta.tta.config_log_utils import prepare_dg_tta
+class DGTTAProgram():
 
-# %% [markdown]
-# # Configure manual sweep
+    def __init__(self):
+        parser = argparse.ArgumentParser(
+            description='Pretends to be git',
+            usage='''git <command> [<args>]
 
-# %%
+        The most commonly used git commands are:
+        commit     Record changes to the repository
+        fetch      Download objects and refs from another repository
+        ''')
+        parser.add_argument('command', help='Subcommand to run')
+        # parse_args defaults to [1:] for args, but you need to
+        # exclude the rest of the args too, or validation will fail
+        args = parser.parse_args(sys.argv[1:2])
+        if not hasattr(self, args.command):
+            print('Unrecognized command')
+            parser.print_help()
+            exit(1)
+        # use dispatch pattern to invoke method with same name
+        getattr(self, args.command)()
 
-run_dicts = [
-    dict(
-        trainer='GIN+MIND',
-        lr=1e-6,
-        intensity_aug_function='GIN+MIND'
-    ),
-    dict(
-        trainer='NNUNET',
-        intensity_aug_function='NNUNET'
-    ),
-    dict(
-        trainer='NNUNET_BN',
-        intensity_aug_function='NNUNET'
-    ),
-    dict(
-        trainer='GIN',
-        intensity_aug_function='GIN'
-    ),
-    dict(
-        trainer='MIND',
-        lr=1e-6,
-        intensity_aug_function='MIND'
-    ),
-]
+    def commit(self):
+        parser = argparse.ArgumentParser(
+            description='Record changes to the repository')
+        # prefixing the argument with -- means it's optional
+        parser.add_argument('--amend', action='store_true')
+        # now that we're inside a subcommand, ignore the first
+        # TWO argvs, ie the command (git) and the subcommand (commit)
+        args = parser.parse_args(sys.argv[2:])
+        print(f'Running git commit, amend={args.ammend}')
 
-if True:
-    for updatetee in run_dicts:
-        updated_dict = deepcopy(CONFIG_DICT)
-        updated_dict.update(updatetee)
-        wandb_run(updated_dict)
+    def fetch(self):
+        parser = argparse.ArgumentParser(
+            description='Download objects and refs from another repository')
+        # NOT prefixing the argument with -- means it's not optional
+        parser.add_argument('repository')
+        args = parser.parse_args(sys.argv[2:])
+        print(f'Running git fetch, repository={args.repository}')
 
 
+def main():
+    assert Path(os.environ['DG_TTA_ROOT']).is_dir(), \
+    "Please define an existing root directory for DG-TTA by setting DG_TTA_ROOT."
+
+    # parser = ArgumentParser()
+    # parser.add_argument('--pretrained_task_id', type=str)
+    # parser.add_argument('--tta_task_id', type=str)
+    # parser.add_argument('--prepare', action='store_true')
+    # # parser.add_argument('--debug', action='store_true')
+
+    # args = parser.parse_args()
+    # print(get_train_test_label_mapping(CONFIG_DICT))
+
+    DGTTAProgram()
+    tta_main()
 
 if __name__ == "__main__":
-    tta_main()
+    main()

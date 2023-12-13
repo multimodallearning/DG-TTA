@@ -1,0 +1,17 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: run.py",
+            "type": "python",
+            "request": "launch",
+            "program": "/storage/staff/christianweihsbach/DG-TTA/dg_tta/run.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "/storage/staff/christianweihsbach/DG-TTA"
+        }
+    ]
+}

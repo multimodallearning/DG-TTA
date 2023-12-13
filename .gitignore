@@ -1,0 +1,4 @@
+__pycache__
+template
+*.pt
+*.ipynb
