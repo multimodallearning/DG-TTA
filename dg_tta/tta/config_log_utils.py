@@ -13,7 +13,6 @@ TEMPLATE_CONFIG = dict(
     pretrainer='nnUNetTrainer_GIN_MIND',
     pretrained_config='3d_fullres',
     pretrained_fold='0',
-    intensity_aug_function='GIN',
 
     tta_across_all_samples=False,
 
@@ -22,11 +21,13 @@ TEMPLATE_CONFIG = dict(
     ensemble_count=3,
     epochs=12,
 
+    intensity_aug_function='GIN',
+    spatial_aug_type='affine', # ['affine', 'deformable']
+
     params_with_grad='all', # all, norms, encoder
     have_grad_in='branch_a', # ['branch_a', 'branch_b', 'both']
     do_intensity_aug_in='none', # ['branch_a', 'branch_b', 'both', 'none']
     do_spatial_aug_in='both', # ['branch_a', 'branch_b', 'both', 'none']
-    spatial_aug_type='affine', # ['affine', 'deformable']
 
     wandb_mode='disabled',
 )
