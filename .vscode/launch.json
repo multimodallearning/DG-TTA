@@ -11,7 +11,14 @@
             "program": "/storage/staff/christianweihsbach/DG-TTA/dg_tta/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "cwd": "/storage/staff/christianweihsbach/DG-TTA"
+            "cwd": "/storage/staff/christianweihsbach/DG-TTA",
+            "args": ["prepare_tta", "803", "804"],
+            "env": {
+                "DG_TTA_ROOT": "/storage/staff/christianweihsbach/DG-TTA/test_env/dg_tta",
+                "nnUNet_raw": "/home/weihsbach/storage/staff/christianweihsbach/nnunet/nnUNetV2_raw",
+                "nnUNet_preprocessed": "/home/weihsbach/storage/staff/christianweihsbach/nnunet/nnUNetV2_preprocessed",
+                "nnUNet_results": "/home/weihsbach/storage/staff/christianweihsbach/nnunet/nnUNetV2_results",
+            }
         }
     ]
 }

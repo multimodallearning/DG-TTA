@@ -1,12 +1,14 @@
 
 # %%
 
-NNUNET_BASE_DIR = '/home/weihsbach/storage/staff/christianweihsbach/nnunet/' # TODO remove this line
+NNUNET_BASE_DIR = ''
 import os
-os.environ['nnUNet_raw'] = NNUNET_BASE_DIR + "nnUNetV2_raw"
-os.environ['nnUNet_preprocessed'] = NNUNET_BASE_DIR + "nnUNetV2_preprocessed"
-os.environ['nnUNet_results'] = NNUNET_BASE_DIR + "nnUNetV2_results" # TODO check nnunet paths
+import os
+from copy import deepcopy
+from torch._dynamo import OptimizedModule
+import json
 
+from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 import torch
 from datetime import datetime
 import importlib
@@ -38,6 +40,19 @@ from pathlib import Path
 from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
 
 from collections import defaultdict
+from dg_tta.tta.torch_utils import load_batch_train
+from dg_tta.tta.torch_utils import soft_dice_loss
+from dg_tta.tta.torch_utils import fix_all, release_all, release_norms
+from dg_tta.tta.augmentation_utils import get_disp_field
+from dg_tta.mind import MIND3D
+from dg_tta.tta.torch_utils import get_module_data, set_module_data
+from dg_tta.tta.augmentation_utils import disable_internal_augmentation, check_internal_augmentation_disabled, get_rand_affine
+from dg_tta.tta.augmentation_utils import gin_aug, GinMINDAug
+import dg_tta
+from dg_tta.tta.config_log_utils import wandb_run
+import shutil
+import argparse
+
 
 # %%
 def dice_coeff(outputs, labels, max_label):
@@ -51,12 +66,6 @@ def dice_coeff(outputs, labels, max_label):
             1e-8 + torch.mean(iflat) + torch.mean(tflat)
         )
     return dice
-
-from dg_tta.tta.torch_utils import load_batch_train
-from dg_tta.tta.torch_utils import soft_dice_loss
-from dg_tta.tta.torch_utils import fix_all, release_all, release_norms
-from dg_tta.tta.augmentation_utils import get_disp_field
-from dg_tta.mind import MIND3D
 
 
 # %%
@@ -129,14 +138,6 @@ def load_tta_data(task_raw_path, configuration_manager, plans_manager, dataset_j
 
 
 
-# %%
-import os
-from copy import deepcopy
-from torch._dynamo import OptimizedModule
-import json
-
-from nnunetv2.inference.predict_from_raw_data import load_trained_model_for_inference, nnUNetPredictor
-
 def load_model(model_training_output_path, fold):
 
     use_folds = [fold] if isinstance(fold, int) else fold # We only trained one fold
@@ -144,7 +145,7 @@ def load_model(model_training_output_path, fold):
 
     parameters, configuration_manager, inference_allowed_mirroring_axes, \
     plans_manager, dataset_json, network, trainer_name = \
-        load_trained_model_for_inference(model_training_output_path, use_folds, checkpoint_name)
+        nnUNetPredictor.initialize_from_trained_model_folder(model_training_output_path, use_folds, checkpoint_name)
 
     patch_size = plans_manager.get_configuration('3d_fullres').patch_size # TODO: make configuration a setting
 
@@ -240,7 +241,7 @@ def ts_myo_spine_postprocessing(output_folder):
         nib.save(nib.Nifti1Image(masked_prediction.int().numpy(),
                                  affine=prediction_nii.affine), prediction_path)
 
-from dg_tta.tta.torch_utils import get_module_data, set_module_data
+
 
 def prepare_mind_layers(model):
     # TODO rename this function
@@ -436,8 +437,6 @@ CONFIG_DICT = dict(
     wandb_mode='online',
 )
 
-from dg_tta.tta.augmentation_utils import gin_aug, GinMINDAug
-
 # Remove hardcoded values
 intensity_aug_function_dict = {
     'NNUNET': lambda img: img,
@@ -553,13 +552,15 @@ def apply_running_stats(m):
         m.running_var.data.copy_(other=running_stats_buffer[_id][1]) # Copy into .data to prevent backprop errors
         del running_stats_buffer[_id]
 
+
+
 def get_parameters_save_path(save_path, ofile, ensemble_idx, train_on_all_test_samples):
     if train_on_all_test_samples:
         ofile = 'all_samples'
     tta_parameters_save_path = save_path / f"{ofile}__ensemble_idx_{ensemble_idx}_tta_parameters.pt"
     return tta_parameters_save_path
 
-from dg_tta.tta.augmentation_utils import disable_internal_augmentation, check_internal_augmentation_disabled, get_rand_affine
+
 
 def tta_main(config, save_path, evaluated_labels, train_test_label_mapping, run_name=None, debug=False):
 
@@ -884,7 +885,6 @@ def tta_main(config, save_path, evaluated_labels, train_test_label_mapping, run_
     path_for_mapped_targets = save_path / 'mapped_targets'
     path_for_mapped_targets.mkdir(exist_ok=True, parents=False)
 
-    import shutil
     image_reader_writer = SimpleITKIO()
 
     for pred_path in all_prediction_save_paths:
@@ -917,9 +917,6 @@ def tta_main(config, save_path, evaluated_labels, train_test_label_mapping, run_
 
 TTA_OUTPUT_DIR = NNUNET_BASE_DIR + "nnUNetV2_TTA_results"
 PROJECT_NAME = 'nnunet_tta'
-
-
-from dg_tta.tta.config_log_utils import wandb_run
 
 
 # %% [markdown]
@@ -968,18 +965,17 @@ sweep_config_dict = dict(
     )
 )
 
-import argparse
-from dg_tta.tta.config_log_utils import prepare_dg_tta
 class DGTTAProgram():
 
     def __init__(self):
         parser = argparse.ArgumentParser(
-            description='Pretends to be git',
-            usage='''git <command> [<args>]
+            description='DG-TTA for nnUNetv2',
+            usage='''dgtta <command> [<args>]
 
-        The most commonly used git commands are:
-        commit     Record changes to the repository
-        fetch      Download objects and refs from another repository
+        Commands are:
+        pretrain        Pretrain an nnUNet model with DG trainers
+        prepare_tta     Prepare test-time adaptation
+        run_tta         Run test-time adaptation
         ''')
         parser.add_argument('command', help='Subcommand to run')
         # parse_args defaults to [1:] for args, but you need to
@@ -992,27 +988,46 @@ class DGTTAProgram():
         # use dispatch pattern to invoke method with same name
         getattr(self, args.command)()
 
-    def commit(self):
+    def pretrain(self):
         parser = argparse.ArgumentParser(
-            description='Record changes to the repository')
-        # prefixing the argument with -- means it's optional
+            description='Run pretraining with DG-TTA trainers')
         parser.add_argument('--amend', action='store_true')
-        # now that we're inside a subcommand, ignore the first
-        # TWO argvs, ie the command (git) and the subcommand (commit)
         args = parser.parse_args(sys.argv[2:])
+        raise NotImplementedError()
         print(f'Running git commit, amend={args.ammend}')
 
-    def fetch(self):
-        parser = argparse.ArgumentParser(
-            description='Download objects and refs from another repository')
-        # NOT prefixing the argument with -- means it's not optional
+    def prepare_tta(self):
+        parser = argparse.ArgumentParser(description='Prepare DG-TTA',
+                                         usage='''dgtta prepare_tta [-h]''')
+        # TODO change term task to dataset
+        parser.add_argument('pretrained_task_id', help='''
+                            Task ID for pretrained model.
+                            Can be numeric or one of ['TS104_GIN', 'TS104_MIND', 'TS104_GIN_MIND']''')
+        parser.add_argument('tta_task_id', help='Task ID for TTA')
+        parser.add_argument('--pretrainer', help='Trainer to use for pretraining', default='nnUNetTrainer_GIN_MIND')
+        parser.add_argument('--pretrained-config', help='Fold ID of nnUNet model to use for pretraining', default='3d_fullres')
+        parser.add_argument('--pretrained-fold', help='Fold ID of nnUNet model to use for pretraining', default='0')
+
+        args = parser.parse_args(sys.argv[2:])
+        pretrained_task_id = int(args.pretrained_task_id) \
+            if args.pretrained_task_id.isnumeric() else args.pretrained_task_id
+        pretrained_fold = int(args.pretrained_fold) \
+            if args.pretrained_fold.isnumeric() else args.pretrained_fold
+
+        dg_tta.tta.config_log_utils.prepare_tta(pretrained_task_id, int(args.tta_task_id),
+                                                pretrainer=args.pretrainer,
+                                                pretrained_config=args.pretrained_config,
+                                                pretrained_fold=pretrained_fold)
+
+    def run_tta(self):
+        parser = argparse.ArgumentParser(description='Run DG-TTA')
         parser.add_argument('repository')
         args = parser.parse_args(sys.argv[2:])
+        raise NotImplementedError()
         print(f'Running git fetch, repository={args.repository}')
 
-
 def main():
-    assert Path(os.environ['DG_TTA_ROOT']).is_dir(), \
+    assert Path(os.environ.get('DG_TTA_ROOT', '_')).is_dir(), \
     "Please define an existing root directory for DG-TTA by setting DG_TTA_ROOT."
 
     # parser = ArgumentParser()
