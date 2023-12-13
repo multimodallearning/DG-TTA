@@ -3,10 +3,11 @@
 
 NNUNET_BASE_DIR = ''
 import os
-import os
+import randomname
 from copy import deepcopy
 from torch._dynamo import OptimizedModule
 import json
+from dg_tta.tta.config_log_utils import get_tta_folders
 
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 import torch
@@ -1019,28 +1020,48 @@ class DGTTAProgram():
                                                 pretrained_config=args.pretrained_config,
                                                 pretrained_fold=pretrained_fold)
 
+
+
     def run_tta(self):
         parser = argparse.ArgumentParser(description='Run DG-TTA')
-        parser.add_argument('repository')
+        parser.add_argument('pretrained_task_id', help='''
+                            Task ID for pretrained model.
+                            Can be numeric or one of ['TS104_GIN', 'TS104_MIND', 'TS104_GIN_MIND']''')
+        parser.add_argument('tta_task_id', help='Task ID for TTA')
+
         args = parser.parse_args(sys.argv[2:])
-        raise NotImplementedError()
-        print(f'Running git fetch, repository={args.repository}')
+
+        r_name = randomname.get_name()
+        pretrained_task_id = int(args.pretrained_task_id) \
+            if args.pretrained_task_id.isnumeric() else args.pretrained_task_id
+
+        plan_dir, results_dir, pretrained_task_name, tta_task_name = get_tta_folders(pretrained_task_id, int(args.tta_task_id))
+        save_path = results_dir / r_name
+
+        with open(Path(plan_dir / 'tta_plan.json'), 'r') as f:
+            config = json.load(f)
+
+        with open(Path(plan_dir) / 'optimized_labels.json', 'r') as f:
+            optimized_labels = json.load(f)
+
+        with open(Path(plan_dir) / f"{pretrained_task_name}_label_mapping.json", 'r') as f:
+            pretrained_label_mapping = json.load(f)
+
+        with open(Path(plan_dir) / f"{tta_task_name}_label_mapping.json", 'r') as f:
+            tta_task_label_mapping = json.load(f)
+
+        label_mapping = generate_label_mapping(pretrained_label_mapping, tta_task_label_mapping)
+
+        tta_main(config, save_path, optimized_labels, label_mapping, run_name=r_name, debug=False)
+
+
 
 def main():
     assert Path(os.environ.get('DG_TTA_ROOT', '_')).is_dir(), \
-    "Please define an existing root directory for DG-TTA by setting DG_TTA_ROOT."
-
-    # parser = ArgumentParser()
-    # parser.add_argument('--pretrained_task_id', type=str)
-    # parser.add_argument('--tta_task_id', type=str)
-    # parser.add_argument('--prepare', action='store_true')
-    # # parser.add_argument('--debug', action='store_true')
-
-    # args = parser.parse_args()
-    # print(get_train_test_label_mapping(CONFIG_DICT))
-
+        "Please define an existing root directory for DG-TTA by setting DG_TTA_ROOT."
     DGTTAProgram()
-    tta_main()
+
+
 
 if __name__ == "__main__":
     main()

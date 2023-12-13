@@ -11,10 +11,6 @@ from nnunetv2.paths import nnUNet_raw, nnUNet_results
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 
 TEMPLATE_CONFIG = dict(
-    pretrainer='nnUNetTrainer_GIN_MIND',
-    pretrained_config='3d_fullres',
-    pretrained_fold='0',
-
     tta_across_all_samples=False,
 
     lr=1e-5,
@@ -99,6 +95,22 @@ def wandb_run(config_dict):
 from pathlib import Path
 import os
 
+def get_tta_folders(pretrained_task_id, tta_task_id):
+    root_dir = Path(os.environ['DG_TTA_ROOT'])
+    # Get dataset names
+    tta_task_name = maybe_convert_to_dataset_name(tta_task_id)
+    if isinstance(pretrained_task_id, int):
+        pretrained_task_name = maybe_convert_to_dataset_name(pretrained_task_id)
+    else:
+        pretrained_task_name = pretrained_task_id
+
+    map_folder = f"Pretrained_{pretrained_task_name}_at_{tta_task_name}"
+    map_folder = f"Pretrained_{pretrained_task_name}_at_{tta_task_name}"
+    plan_dir = (root_dir / 'plans' / map_folder)
+    results_dir = (root_dir / 'results' / map_folder)
+
+    return plan_dir, results_dir, pretrained_task_name, tta_task_name
+
 def prepare_tta(pretrained_task_id, tta_task_id,
                 pretrainer=None, pretrained_config=None, pretrained_fold=None):
     assert pretrained_task_id != tta_task_id
@@ -114,20 +126,11 @@ def prepare_tta(pretrained_task_id, tta_task_id,
         assert pretrained_config is not None
         assert pretrained_fold == 'all' or isinstance(pretrained_fold, int)
 
-    # Get dataset names
-    tta_task_name = maybe_convert_to_dataset_name(tta_task_id)
-    if isinstance(pretrained_task_id, int):
-        pretrained_task_name = maybe_convert_to_dataset_name(pretrained_task_id)
-    else:
-        pretrained_task_name = pretrained_task_id
-
     root_dir = Path(os.environ['DG_TTA_ROOT'])
     assert root_dir.is_dir()
 
     # Create directories
-    map_folder = f"Pretrained_{pretrained_task_name}_at_{tta_task_name}"
-    plan_dir = (root_dir / 'plans' / map_folder)
-    results_dir = (root_dir / 'results' / map_folder)
+    plan_dir, results_dir, pretrained_task_name, tta_task_name = get_tta_folders(pretrained_task_id, tta_task_id)
 
     shutil.rmtree(plan_dir, ignore_errors=True)
     plan_dir.mkdir(exist_ok=True, parents=True)
@@ -172,6 +175,10 @@ def prepare_tta(pretrained_task_id, tta_task_id,
     with open(plan_dir / "tta_plan.json", 'w') as f:
         json.dump(initial_config, f, indent=4)
 
+    with open(plan_dir / "optimized_labels.json", 'w') as f:
+        intersection_classes = list(set(pretrained_classes.keys()).intersection(set(tta_task_classes)))
+        json.dump(intersection_classes, f, indent=4)
+
     # Dump modifier functions
     modifier_src = inspect.getsource(ModifierFunctions)
 
@@ -179,6 +186,7 @@ def prepare_tta(pretrained_task_id, tta_task_id,
         f.write("import torch\n\n")
         f.write(modifier_src)
 
+    print(f"Preparation done. You can edit the plan, modifier functions and optimized labels in {plan_dir} prior to running TTA.")
 
 
 def download_pretrained_weights(pretrained_task_id):
