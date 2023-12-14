@@ -490,7 +490,7 @@ train_data_model_dict = dict(
 
 
 
-def get_model_from_network(config, network, parameters=None):
+def get_model_from_network(config, predictor, network, parameters=None):
     model = deepcopy(network)
 
     if parameters is not None:
@@ -505,8 +505,8 @@ def get_model_from_network(config, network, parameters=None):
     model.register_forward_pre_hook(lambda _, input: additional_model_pre_forward_hook_dict[config['train_tta_data_map']](input))
 
     check_internal_augmentation_disabled()
-
-    if 'mind' in config['trainer'].lower():
+    #TODO continue here
+    if 'mind' in predictor.trainer_name.lower():
         assert 'mind' in config['intensity_aug_function'].lower()
 
         def hook(module, input):
@@ -603,7 +603,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
     zero_grid = torch.zeros([B] + patch_size + [3], device=device)
     identity_grid = F.affine_grid(torch.eye(4, device=device).repeat(B,1,1)[:,:3], [B, 1] + patch_size)
 
-    if config['train_on_all_test_samples']:
+    if config['tta_across_all_samples']:
         sample_range = [0]
     else:
         sample_range = trange(num_samples, desc='sample')
@@ -612,7 +612,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
 
     for smp_idx in sample_range:
 
-        if config['train_on_all_test_samples']:
+        if config['tta_across_all_samples']:
             tta_sample = tta_imgs_segs
             ofile = 'all_samples'
         else:
@@ -629,7 +629,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
 
         for ensemble_idx in trange(ensemble_count, desc='ensemble'):
 
-            tta_parameters_save_path = get_parameters_save_path(save_path, ofile, ensemble_idx, config['train_on_all_test_samples'])
+            tta_parameters_save_path = get_parameters_save_path(save_path, ofile, ensemble_idx, config['tta_across_all_samples'])
             if tta_parameters_save_path.is_file():
                 tqdm.write(f"TTA parameters file already exists: {tta_parameters_save_path}")
                 continue
@@ -637,7 +637,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
             train_losses = torch.zeros(num_epochs)
             eval_dices = torch.zeros(num_epochs)
 
-            if 'mind' in config['trainer'].lower():
+            if 'mind' in predictor.trainer_name.lower():
                 intensity_aug_func = lambda imgs: imgs
 
             elif 'mind' in config['intensity_aug_function'].lower():
@@ -645,7 +645,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
             else:
                 intensity_aug_func = intensity_aug_function_dict[config['intensity_aug_function']]
 
-            model = get_model_from_network(config, network, parameters)
+            model = get_model_from_network(config, predictor, network, parameters)
             model = model.to(device=device)
 
             optimizer = torch.optim.AdamW(model.parameters(), lr=config['lr'])
@@ -868,7 +868,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
         prediction_save_path = save_path / ofilename
 
         disable_internal_augmentation()
-        model = get_model_from_network(config, network, None)
+        model = get_model_from_network(config, predictor, network, None)
 
         predicted_output = run_inference(tta_data[smp_idx:smp_idx+1], model, ensemble_parameter_paths,
             plans_manager, configuration_manager, dataset_json, inference_allowed_mirroring_axes,
@@ -1035,7 +1035,6 @@ class DGTTAProgram():
             if args.pretrained_task_id.isnumeric() else args.pretrained_task_id
 
         tta_data_dir, plan_dir, results_dir, pretrained_task_name, tta_task_name = get_tta_folders(pretrained_task_id, int(args.tta_task_id))
-        save_path = results_dir / r_name
 
         with open(Path(plan_dir / 'tta_plan.json'), 'r') as f:
             config = json.load(f)
@@ -1051,7 +1050,7 @@ class DGTTAProgram():
 
         label_mapping = generate_label_mapping(pretrained_label_mapping, tta_task_label_mapping)
 
-        tta_main(config, tta_data_dir, save_path, optimized_labels, label_mapping, run_name=r_name, debug=False)
+        tta_main(config, tta_data_dir, results_dir, optimized_labels, label_mapping, run_name=r_name, debug=False)
 
 
 

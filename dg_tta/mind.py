@@ -48,6 +48,30 @@ def pdist(x, p=2):
 
 
 
+class MIND2D_64(): #layout should be of size 2x64x1x2
+    def __init__(self,image,layout,grid) -> None:
+    #batch and channels should be equal to 1
+        B,C,H,W = image.size()
+
+        #smaller fixed length offsets for 64 MIND-SSC like features
+        brief_layout3 = layout[0:1,0:,:,:]*0.15
+        brief_layout4 = layout[1:2,0:,:,:]*0.15
+        brief_layout4[:,:32,:,:] = 0
+        fixed_length = 0.05
+        brief_length = torch.sqrt(torch.sum((brief_layout3-brief_layout4)**2,3,keepdim=True))
+        brief_layout3 /= (brief_length/fixed_length)
+        brief_layout4 /= (brief_length/fixed_length)
+
+        img_patch = F.unfold(image,5,padding=2).view(1,25,H,W)
+        brief_patch = torch.sum((F.grid_sample(img_patch,brief_layout3+grid.view(1,1,-1,2),align_corners=True)-F.grid_sample(img_patch,brief_layout4+grid.view(1,1,-1,2),align_corners=True))**2,1)
+        brief_patch -= brief_patch.min(1)[0]
+        brief_patch /= torch.clamp_min(brief_patch.std(1),1e-5)
+        brief_patch = torch.exp(-brief_patch).view(1,-1,grid.size(1),grid.size(2))
+
+        return brief_patch
+
+
+
 class MIND3D(torch.nn.Module):
     def __init__(self, delta=1, sigma=1, randn_weighting=0.05) -> None:
         super().__init__()

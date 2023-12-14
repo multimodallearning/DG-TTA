@@ -6,3 +6,4 @@
 * Add documentation
 * Test approach freshly installed
 * Add data preparation notebook
+* Remove fix package dependencies
