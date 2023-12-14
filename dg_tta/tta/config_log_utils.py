@@ -1,6 +1,7 @@
 
 import os
 import sys
+import pathlib
 from pathlib import Path
 import importlib
 import subprocess
@@ -51,9 +52,14 @@ class ModifierFunctions():
 
     @staticmethod
     def modify_tta_output_after_mapping_fn(mapped_label: torch.Tensor):
-        # This function will be caled after model prediction when labels are mapped
+        # This function will be called after model prediction when labels are mapped
         # to the target label numbers/ids.
         return mapped_label
+
+    @staticmethod
+    def postprocess_results_fn(results_dir: pathlib.Path):
+        pass
+        # This function will be called on the final output directory.
 
 
 
@@ -210,6 +216,7 @@ def prepare_tta(pretrained_task_id, tta_task_id,
     modifier_src = inspect.getsource(ModifierFunctions)
 
     with open(plan_dir / "modifier_functions.py", 'w') as f:
+        f.write("import pathlib\n")
         f.write("import torch\n\n")
         f.write(modifier_src)
 
