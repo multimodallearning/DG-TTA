@@ -8,7 +8,7 @@
             "name": "Python: run.py prepare",
             "type": "python",
             "request": "launch",
-            "program": "/home/weihsbach/home/weihsbach/storage/staff/christianweihsbach/DG-TTA/dg_tta/run.py",
+            "program": "/home/weihsbach/storage/staff/christianweihsbach/DG-TTA/dg_tta/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "cwd": "/home/weihsbach/storage/staff/christianweihsbach/DG-TTA",

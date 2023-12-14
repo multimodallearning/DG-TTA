@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import torch
 import torch.nn.functional as F
 
@@ -143,3 +145,35 @@ def set_module_data(module, keychain, data):
         root[int(leaf)] = data
     else:
         setattr(root, leaf, data)
+
+
+
+def register_forward_pre_hook_at_beginning(model, hook_fn):
+    hook_dict = {k:v for k,v in \
+        zip(
+            range(len(model._forward_pre_hooks)+1),
+            [hook_fn] + list(model._forward_pre_hooks.values())
+        )
+    }
+    model._forward_pre_hooks = OrderedDict(hook_dict)
+
+
+
+def register_forward_hook_at_beginning(model, hook_fn):
+    hook_dict = {k:v for k,v in \
+        zip(
+            range(len(model._forward_hooks)+1),
+            [hook_fn] + list(model._forward_hooks.values()))}
+    model._forward_hooks = OrderedDict(hook_dict)
+
+
+
+def hookify(fn, type):
+    assert type in ['forward_pre_hook', 'forward_hook']
+
+    if type == 'forward_pre_hook':
+        return lambda module, input: fn(*input)
+    elif type == 'forward_hook':
+        return lambda module, input, output: fn(output)
+
+    raise ValueError()

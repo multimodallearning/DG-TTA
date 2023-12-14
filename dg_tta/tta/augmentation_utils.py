@@ -1,7 +1,12 @@
+import os
 import torch
 import torch.nn.functional as F
 
 from dg_tta.pretraining.nnUNetTrainer_GIN import gin_hook
+from dg_tta.mind import MIND3D
+
+from dg_tta.utils import disable_internal_augmentation, enable_internal_augmentation
+from dg_tta.gin import gin_aug
 
 def get_rf_field(num_batch, size_3d, interpolation_factor=4, num_fields=4, alternating_fields=True, device='device'):
     # TODO refactor
@@ -119,36 +124,5 @@ def get_rand_affine(batch_size, strength=0.05, flip=False):
 
 
 
-def gin_aug(input):
-    enable_internal_augmentation()
-    input = gin_hook(None, input)
-    disable_internal_augmentation()
-    return input
-
-from dg_tta.mind import MIND3D
-import sys
-
-class GinMINDAug():
-    def __init__(self):
-        super().__init__()
-        self.mind_fn = MIND3D()
-
-    def __call__(self, input):
-        return self.mind_fn(gin_aug(input))
-
-
-
-def enable_internal_augmentation():
-    if '--tr_disable_internal_augmentation' in sys.argv:
-        sys.argv.remove('--tr_disable_internal_augmentation')
-
-
-
-def disable_internal_augmentation():
-    if not '--tr_disable_internal_augmentation' in sys.argv:
-        sys.argv.append('--tr_disable_internal_augmentation')
-
-
-
-def check_internal_augmentation_disabled():
-    assert '--tr_disable_internal_augmentation' in sys.argv
+def gin_mind_aug(input):
+    return  MIND3D()(gin_aug(input))

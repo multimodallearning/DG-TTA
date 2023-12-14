@@ -1,4 +1,6 @@
 
+import sys
+import importlib
 import subprocess
 import shutil
 import inspect
@@ -18,7 +20,7 @@ TEMPLATE_CONFIG = dict(
     ensemble_count=3,
     epochs=12,
 
-    intensity_aug_function='GIN',
+    intensity_aug_function='gin', # ['gin', 'disabled']
     spatial_aug_type='affine', # ['affine', 'deformable']
 
     params_with_grad='all', # all, norms, encoder
@@ -41,7 +43,7 @@ class ModifierFunctions():
         return image
 
     @staticmethod
-    def modfify_tta_output_fn(pred_label: torch.Tensor):
+    def modfify_tta_model_output_fn(pred_label: torch.Tensor):
         # This function will be called directly after model prediction
         return pred_label
 
@@ -181,6 +183,9 @@ def prepare_tta(pretrained_task_id, tta_task_id,
 
     with open(plan_dir / "optimized_labels.json", 'w') as f:
         intersection_classes = list(set(pretrained_classes.keys()).intersection(set(tta_task_classes)))
+        assert 'background' in intersection_classes, 'Background class must be present in both datasets!'
+        intersection_classes.remove('background')
+        intersection_classes.insert(0, 'background')
         json.dump(intersection_classes, f, indent=4)
 
     # Dump modifier functions
@@ -217,3 +222,27 @@ def download_pretrained_weights(pretrained_task_id):
         subprocess.run(["wget", dl_link, "-O", target_path])
 
     return target_path
+
+
+
+def get_global_idx(list_of_tuple_idx_max):
+    # Get global index e.g. 2250 for ensemble_idx=2, epoch_idx=250 @ max_epochs<1000
+    global_idx = 0
+    next_multiplier = 1
+
+    # Smallest identifier tuple last!
+    for idx, max_of_idx in reversed(list_of_tuple_idx_max):
+        global_idx = global_idx + next_multiplier * idx
+        next_multiplier = next_multiplier * 10**len(str(int(max_of_idx)))
+    return global_idx
+
+
+
+def load_current_modifier_functions(plan_dir):
+    mod_path = Path(plan_dir / "modifier_functions.py")
+    spec = importlib.util.spec_from_file_location("dg_tta.current_modifier_functions", mod_path)
+    dyn_mod = importlib.util.module_from_spec(spec)
+    sys.modules["dg_tta.current_modifier_functions"] = dyn_mod
+    spec.loader.exec_module(dyn_mod)
+
+    return dyn_mod

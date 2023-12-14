@@ -125,3 +125,8 @@ class MIND3D(torch.nn.Module):
         mind = torch.exp(-mind)
 
         return mind
+
+
+
+def mind_hook(module, input):
+    return MIND3D().forward(*input)

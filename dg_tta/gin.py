@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
+from dg_tta.utils import get_internal_augmentation_enabled
 # TODO state copyright
 
 class GradlessGCReplayNonlinBlock(nn.Module):
@@ -92,8 +94,7 @@ class GINGroupConv(nn.Module):
 
         self.layers = nn.ModuleList(self.layers)
 
-
-    def forward(self, x_in, use_gin=True):
+    def forward(self, x_in):
         if isinstance(x_in, list):
             x_in = torch.cat(x_in, dim = 0)
 
@@ -106,23 +107,19 @@ class GINGroupConv(nn.Module):
 
         nb, nc = x_in.shape[:2]
 
-        if use_gin:
-            if mode == '2d':
-                alphas = torch.rand(nb, device=x_in.device)[:, None, None, None] # nb, 1, 1, 1
-                alphas = alphas.repeat(1, nc, 1, 1) # nb, nc, 1, 1
-            elif mode == '3d':
-                alphas = torch.rand(nb, device=x_in.device)[:, None, None, None, None] # nb, 1, 1, 1, 1
-                alphas = alphas.repeat(1, nc, 1, 1, 1) # nb, nc, 1, 1, 1
-            else:
-                raise ValueError()
-
-            x = self.layers[0](x_in)
-            for blk in self.layers[1:]:
-                x = blk(x)
-            mixed = alphas * x + (1.0 - alphas) * x_in
-
+        if mode == '2d':
+            alphas = torch.rand(nb, device=x_in.device)[:, None, None, None] # nb, 1, 1, 1
+            alphas = alphas.repeat(1, nc, 1, 1) # nb, nc, 1, 1
+        elif mode == '3d':
+            alphas = torch.rand(nb, device=x_in.device)[:, None, None, None, None] # nb, 1, 1, 1, 1
+            alphas = alphas.repeat(1, nc, 1, 1, 1) # nb, nc, 1, 1, 1
         else:
-            mixed = x_in
+            raise ValueError()
+
+        x = self.layers[0](x_in)
+        for blk in self.layers[1:]:
+            x = blk(x)
+        mixed = alphas * x + (1.0 - alphas) * x_in
 
         if self.out_norm == 'frob':
             _in_frob = torch.norm(x_in.reshape(nb, nc, -1), dim = (-1, -2), p = 'fro', keepdim = False)
@@ -140,3 +137,22 @@ class GINGroupConv(nn.Module):
             mixed = mixed * (1.0 / (_self_frob + 1e-5 ) ) * _in_frob
 
         return mixed
+
+
+
+def gin_aug(input):
+    cfg = dict(
+        IN_CHANNELS=1,
+        N_LAYER=4,
+        INTERM_CHANNELS=2,
+    )
+    gin_group_conv = GINGroupConv(cfg)
+    input = gin_group_conv(input)
+    return input
+
+
+
+def gin_hook(module, input):
+    if get_internal_augmentation_enabled():
+        return gin_aug(*input)
+    return input

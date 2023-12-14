@@ -17,10 +17,6 @@ if importlib.util.find_spec('wandb'):
     import wandb
 import shutil
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
-# from nnunetv2.inference.predict_from_raw_data import (
-#     _manage_input_and_output_lists,
-#     _internal_get_data_iterator_from_lists_of_filenames,
-# )
 import json
 from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
 from pathlib import Path
@@ -35,6 +31,7 @@ import matplotlib.pyplot as plt
 from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder_simple
 import nibabel as nib
 from dg_tta.__build__ import inject_dg_trainers_into_nnunet
+from dg_tta.tta.config_log_utils import get_global_idx
 
 import numpy as np
 from contextlib import nullcontext
@@ -45,16 +42,17 @@ from collections import defaultdict
 from dg_tta.tta.torch_utils import load_batch_train
 from dg_tta.tta.torch_utils import soft_dice_loss
 from dg_tta.tta.torch_utils import fix_all, release_all, release_norms
-from dg_tta.tta.augmentation_utils import get_disp_field
+from dg_tta.tta.augmentation_utils import get_disp_field, gin_mind_aug
 from dg_tta.mind import MIND3D
 from dg_tta.tta.torch_utils import get_module_data, set_module_data
-from dg_tta.tta.augmentation_utils import disable_internal_augmentation, check_internal_augmentation_disabled, get_rand_affine
-from dg_tta.tta.augmentation_utils import gin_aug, GinMINDAug
+from dg_tta.tta.augmentation_utils import get_rand_affine
+from dg_tta.utils import disable_internal_augmentation, check_internal_augmentation_disabled
+from dg_tta.gin import gin_aug
 import dg_tta
-from dg_tta.tta.config_log_utils import wandb_run
+from dg_tta.tta.config_log_utils import wandb_run, load_current_modifier_functions
 import shutil
 import argparse
-
+from dg_tta.tta.torch_utils import register_forward_pre_hook_at_beginning, register_forward_hook_at_beginning, hookify
 
 # %%
 def dice_coeff(outputs, labels, max_label):
@@ -106,6 +104,7 @@ def load_tta_data(task_raw_path, predictor, fixed_sample_idx):
         num_parts,
         save_probabilities,
     )
+    list_of_lists_or_source_folder = list_of_lists_or_source_folder[0:1] # TODO remove
     nnUNetPredictor._internal_get_data_iterator_from_lists_of_filenames
     data_iterator = predictor._internal_get_data_iterator_from_lists_of_filenames(
         list_of_lists_or_source_folder,
@@ -419,37 +418,34 @@ EVALUATED_LABELS_DICT = {
     'TotalSegmentator->MyoSegmenTUM_spine': ["background", "L1", "L2", "L3", "L4", "L5"],
 }
 
-# TODO make config standard and exposable
-CONFIG_DICT = dict(
-    train_data='BCV',
-    fold='0',
-    data_postload_fn=None,
-    trainer='GIN+MIND',
-    tta_data='AMOS',
-    intensity_aug_function='GIN',
-    train_on_all_test_samples=False,
-    params_with_grad='all', # all, norms, encoder
-    lr=1e-5,
-    fixed_sample_idx=None,
-    ensemble_count=3,
-    epochs=12,
+# CONFIG_DICT = dict(
+#     train_data='BCV',
+#     fold='0',
+#     data_postload_fn=None,
+#     trainer='GIN+MIND',
+#     tta_data='AMOS',
+#     intensity_aug_function='GIN',
+#     train_on_all_test_samples=False,
+#     params_with_grad='all', # all, norms, encoder
+#     lr=1e-5,
+#     fixed_sample_idx=None,
+#     ensemble_count=3,
+#     epochs=12,
 
-    have_grad_in='branch_a', # ['branch_a', 'branch_b', 'both']
-    do_intensity_aug_in='none', # ['branch_a', 'branch_b', 'both', 'none']
-    do_spatial_aug_in='both', # ['branch_a', 'branch_b', 'both', 'none']
-    spatial_aug_type='affine', # ['affine', 'deformable']
+#     have_grad_in='branch_a', # ['branch_a', 'branch_b', 'both']
+#     do_intensity_aug_in='none', # ['branch_a', 'branch_b', 'both', 'none']
+#     do_spatial_aug_in='both', # ['branch_a', 'branch_b', 'both', 'none']
+#     spatial_aug_type='affine', # ['affine', 'deformable']
 
-    wandb_mode='online',
-)
+#     wandb_mode='online',
+# )
 
-# Remove hardcoded values
-intensity_aug_function_dict = {
-    'NNUNET': lambda img: img,
-    'GIN': gin_aug,
-    'MIND': MIND3D(),
-    'GIN+MIND': GinMINDAug(),
+INTENSITY_AUG_FUNCTION_DICT = {
+    'disabled': lambda img: img,
+    'gin': gin_aug
 }
 
+# 
 trainer_dict = {
     'NNUNET': 'nnUNetTrainer__nnUNetPlans__3d_fullres',
     'NNUNET_BN': 'nnUNetTrainerBN__nnUNetPlans__3d_fullres',
@@ -490,7 +486,7 @@ train_data_model_dict = dict(
 
 
 
-def get_model_from_network(config, predictor, network, parameters=None):
+def get_model_from_network(config, predictor, network, modifier_fn_module, parameters=None):
     model = deepcopy(network)
 
     if parameters is not None:
@@ -499,48 +495,25 @@ def get_model_from_network(config, predictor, network, parameters=None):
         else:
             model._orig_mod.load_state_dict(parameters[0])
 
-    model._forward_pre_hooks.clear()
-
-    # Register hook if found, otherwise lambda e:e is used
-    model.register_forward_pre_hook(lambda _, input: additional_model_pre_forward_hook_dict[config['train_tta_data_map']](input))
-
+    # Register a custom augmentation function
     check_internal_augmentation_disabled()
-    #TODO continue here
-    if 'mind' in predictor.trainer_name.lower():
-        assert 'mind' in config['intensity_aug_function'].lower()
+    custom_intensity_aug_function = INTENSITY_AUG_FUNCTION_DICT[config['intensity_aug_function']]
+    register_forward_pre_hook_at_beginning(model, hookify(custom_intensity_aug_function, 'forward_pre_hook'))
 
-        def hook(module, input):
-            input = input[0]
-            return intensity_aug_function_dict[config['intensity_aug_function']](input)
+    # Register hook that modifies the input prior to custom augmentation
+    # modify_tta_input_fn = additional_model_pre_forward_hook_dict[config['train_tta_data_map']]
+    modify_tta_input_fn = modifier_fn_module.ModifierFunctions.modify_tta_input_fn
+    register_forward_pre_hook_at_beginning(model, hookify(modify_tta_input_fn, 'forward_pre_hook'))
+    # model.register_forward_pre_hook(lambda _, input: additional_model_pre_forward_hook_dict[config['train_tta_data_map']](input))
 
-        model.register_forward_pre_hook(hook)
-
-    elif 'mind' in config['intensity_aug_function'].lower():
-        # Prepare mind layers for a normal model
-        prepare_mind_layers(model)
-
-        def hook(module, input):
-            input = input[0]
-            return intensity_aug_function_dict[config['intensity_aug_function']](input)
-
-        model.register_forward_pre_hook(hook)
-
-    model.register_forward_hook(
-        lambda model, input, output: \
-            additional_model_forward_hook_dict[config['train_tta_data_map']](output))
+    # Register hook that modifies the output of the model
+    modfify_tta_model_output_fn = modifier_fn_module.ModifierFunctions.modfify_tta_model_output_fn
+    register_forward_hook_at_beginning(model, hookify(modfify_tta_model_output_fn, 'forward_hook'))
+    # model.register_forward_hook(
+    #     lambda model, input, output: \
+    #         (output))
 
     return model
-
-def get_global_idx(list_of_tuple_idx_max):
-    # Get global index e.g. 2250 for ensemble_idx=2, epoch_idx=250 @ max_epochs<1000
-    global_idx = 0
-    next_multiplier = 1
-
-    # Smallest identifier tuple last!
-    for idx, max_of_idx in reversed(list_of_tuple_idx_max):
-        global_idx = global_idx + next_multiplier * idx
-        next_multiplier = next_multiplier * 10**len(str(int(max_of_idx)))
-    return global_idx
 
 running_stats_buffer = {}
 
@@ -567,7 +540,7 @@ def get_parameters_save_path(save_path, ofile, ensemble_idx, train_on_all_test_s
 
 
 
-def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label_mapping, run_name=None, debug=False):
+def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label_mapping, modifier_fn_module, run_name=None, debug=False):
 
     # Load model
     model_training_output_path = config['pretrained_weights_file']
@@ -643,9 +616,9 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
             elif 'mind' in config['intensity_aug_function'].lower():
                 intensity_aug_func = lambda imgs: imgs
             else:
-                intensity_aug_func = intensity_aug_function_dict[config['intensity_aug_function']]
+                intensity_aug_func = INTENSITY_AUG_FUNCTION_DICT[config['intensity_aug_function']]
 
-            model = get_model_from_network(config, predictor, network, parameters)
+            model = get_model_from_network(config, predictor, network, modifier_fn_module, parameters)
             model = model.to(device=device)
 
             optimizer = torch.optim.AdamW(model.parameters(), lr=config['lr'])
@@ -678,8 +651,8 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
                 for _ in range(ACCUM):
 
                     with torch.no_grad():
-                        imgs, labels, _ = load_batch_train(
-                            tta_sample, torch.randperm(tta_sample.shape[0])[:B], patch_size, affine_rand=0, use_rf=False,
+                        imgs, labels = load_batch_train(
+                            tta_sample, torch.randperm(tta_sample.shape[0])[:B], patch_size, affine_rand=0,
                             fixed_patch_idx=None
                         )
                     # TODO: split this into two function calls
@@ -793,7 +766,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
                 with torch.inference_mode():
                     model.eval()
                     for _ in range(num_eval_patches):
-                        imgs, labels, _ = load_batch_train(
+                        imgs, labels = load_batch_train(
                             tta_sample, torch.randperm(tta_sample.shape[0])[:B], patch_size, affine_rand=0,
                             fixed_patch_idx='center', # This is just for evaluation purposes
                         )
@@ -868,7 +841,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
         prediction_save_path = save_path / ofilename
 
         disable_internal_augmentation()
-        model = get_model_from_network(config, predictor, network, None)
+        model = get_model_from_network(config, predictor, network, modifier_fn_module, parameters=None)
 
         predicted_output = run_inference(tta_data[smp_idx:smp_idx+1], model, ensemble_parameter_paths,
             plans_manager, configuration_manager, dataset_json, inference_allowed_mirroring_axes,
@@ -1050,7 +1023,8 @@ class DGTTAProgram():
 
         label_mapping = generate_label_mapping(pretrained_label_mapping, tta_task_label_mapping)
 
-        tta_main(config, tta_data_dir, results_dir, optimized_labels, label_mapping, run_name=r_name, debug=False)
+        modifier_fn_module = load_current_modifier_functions(plan_dir)
+        tta_main(config, tta_data_dir, results_dir, optimized_labels, label_mapping, modifier_fn_module, run_name=r_name, debug=False)
 
 
 
