@@ -1,5 +1,7 @@
 
+import os
 import sys
+from pathlib import Path
 import importlib
 import subprocess
 import shutil
@@ -20,7 +22,7 @@ TEMPLATE_CONFIG = dict(
     ensemble_count=3,
     epochs=12,
 
-    intensity_aug_function='gin', # ['gin', 'disabled']
+    intensity_aug_function='GIN', # ['GIN', 'disabled']
     spatial_aug_type='affine', # ['affine', 'deformable']
 
     params_with_grad='all', # all, norms, encoder
@@ -63,41 +65,38 @@ def update_data_mapping_config(config_dict):
 
 
 
-def get_evaluated_labels(config_dict):
-    return EVALUATED_LABELS_DICT[config_dict['train_tta_data_map']]
+# def get_optimized_labels(config_dict):
+#     return optimized_labels_DICT[config_dict['train_tta_data_map']]
 
 
 
-def get_train_test_label_mapping(config_dict):
-    train_test_label_mapping = generate_label_mapping(
-        dataset_labels_dict[config_dict['train_data']],
-        dataset_labels_dict[config_dict['tta_data']]
-    )
-    return train_test_label_mapping
+# def get_train_test_label_mapping(config_dict):
+#     train_test_label_mapping = generate_label_mapping(
+#         dataset_labels_dict[config_dict['train_data']],
+#         dataset_labels_dict[config_dict['tta_data']]
+#     )
+#     return train_test_label_mapping
 
 
 
 # TODO find a solution for auto-naming
-def wandb_run(config_dict):
+def wandb_run(wandb_project_name, run_name, output_dir, config_dict, label_mapping, optimized_labels, tta_fn):
     # TODO refactor
     config_dict = update_data_mapping_config(config_dict)
-    evaluated_labels = get_evaluated_labels(config_dict)
-    train_test_label_mapping = get_train_test_label_mapping(config_dict)
-    now_str = datetime.now().strftime("%Y%m%d__%H_%M_%S")
+    # train_test_label_mapping = get_train_test_label_mapping(config_dict)
 
     with wandb.init(
-        mode=config_dict['wandb_mode'], config=config_dict, project=PROJECT_NAME) as run:
+        mode=config_dict['wandb_mode'], config=config_dict, project=wandb_project_name) as run:
         config = wandb.config
+        now_str = datetime.now().strftime("%Y%m%d__%H_%M_%S")
         run.name = f"{now_str}_{run.name}"
-        tta_main(config, TTA_OUTPUT_DIR, evaluated_labels, train_test_label_mapping, run.name, debug=False)
+        tta_fn(config, output_dir, optimized_labels, label_mapping, run.name, debug=False)
     wandb.finish()
     torch.cuda.empty_cache()
 
 
-from pathlib import Path
-import os
 
-def get_tta_folders(pretrained_task_id, tta_task_id):
+def get_tta_folders(pretrained_task_id, tta_task_id, pretrainer, pretrainer_config, pretrainer_fold):
     root_dir = Path(os.environ['DG_TTA_ROOT'])
 
     # Get dataset names
@@ -108,35 +107,54 @@ def get_tta_folders(pretrained_task_id, tta_task_id):
     else:
         pretrained_task_name = pretrained_task_id
 
-    map_folder = f"Pretrained_{pretrained_task_name}_at_{tta_task_name}"
-    map_folder = f"Pretrained_{pretrained_task_name}_at_{tta_task_name}"
-    plan_dir = (root_dir / 'plans' / map_folder)
-    results_dir = (root_dir / 'results' / map_folder)
+    fold_folder = f"fold_{pretrainer_fold}" if pretrainer_fold != 'all' else pretrainer_fold
+    map_folder = f"Pretrained_{pretrained_task_name}_at_{tta_task_name}__{pretrainer}__{pretrainer_config}"
+    plan_dir = (root_dir / 'plans' / map_folder / fold_folder)
+    results_dir = (root_dir / 'results' / map_folder / fold_folder)
 
     tta_data_dir = Path(nnUNet_raw, tta_task_name)
 
     return tta_data_dir, plan_dir, results_dir, pretrained_task_name, tta_task_name
 
 def prepare_tta(pretrained_task_id, tta_task_id,
-                pretrainer=None, pretrained_config=None, pretrained_fold=None):
+                pretrainer=None, pretrainer_config=None, pretrainer_fold=None):
     assert pretrained_task_id != tta_task_id
     assert (
         pretrained_task_id in ['TS104_GIN', 'TS104_MIND', 'TS104_GIN_MIND'] \
         or isinstance(pretrained_task_id, int)
     )
-    assert isinstance(tta_task_id, int)
 
     if isinstance(pretrained_task_id, int):
         # Check fold specifier
         assert pretrainer is not None
-        assert pretrained_config is not None
-        assert pretrained_fold == 'all' or isinstance(pretrained_fold, int)
+        assert pretrainer_config is not None
+        assert pretrainer_fold == 'all' or isinstance(pretrainer_fold, int)
+    else:
+        if pretrained_task_id == 'TS104_GIN':
+            pretrainer = 'nnUNetTrainer_GIN'
+            pretrainer_config = '3d_fullres'
+            pretrainer_fold = '0'
+
+        elif pretrained_task_id == 'TS104_MIND':
+            pretrainer = 'nnUNetTrainer_MIND'
+            pretrainer_config = '3d_fullres'
+            pretrainer_fold = '0'
+
+        elif pretrained_task_id == 'TS104_GIN_MIND':
+            pretrainer = 'nnUNetTrainer_GIN_MIND'
+            pretrainer_config = '3d_fullres'
+            pretrainer_fold = '0'
+
+        else:
+            raise ValueError()
+
 
     root_dir = Path(os.environ['DG_TTA_ROOT'])
     assert root_dir.is_dir()
 
     # Create directories
-    _, plan_dir, results_dir, pretrained_task_name, tta_task_name = get_tta_folders(pretrained_task_id, tta_task_id)
+    _, plan_dir, results_dir, pretrained_task_name, tta_task_name = \
+        get_tta_folders(pretrained_task_id, tta_task_id, pretrainer, pretrainer_config, pretrainer_fold)
 
     shutil.rmtree(plan_dir, ignore_errors=True)
     plan_dir.mkdir(exist_ok=True, parents=True)
@@ -153,9 +171,9 @@ def prepare_tta(pretrained_task_id, tta_task_id,
             pretrained_classes = json.load(f)['labels']
 
         # Get weights file
-        fold_dir = f"fold_{pretrained_fold}" if pretrained_fold != 'all' else pretrained_fold
+        fold_dir = f"fold_{pretrainer_fold}" if pretrainer_fold != 'all' else pretrainer_fold
         results_pretrained_dataset_dir = Path(nnUNet_results, pretrained_task_name,
-                                              f"{pretrainer}__nnUNetPlans__{pretrained_config}",
+                                              f"{pretrainer}__nnUNetPlans__{pretrainer_config}",
                                               fold_dir)
         weights_file_path = results_pretrained_dataset_dir / "checkpoint_final.pth"
 

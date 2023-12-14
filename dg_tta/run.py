@@ -263,7 +263,7 @@ def prepare_mind_layers(model):
     return model
 
 
-# %%
+
 def generate_label_mapping(source_label_dict, target_label_dict):
     # TODO permit user definition an alternative mapping dict per task
     assert all([isinstance(k, str) for k in source_label_dict.keys()])
@@ -279,13 +279,15 @@ def generate_label_mapping(source_label_dict, target_label_dict):
 
     return {k:v for k,v in mapping_dict.items() if v is not None}
 
-def get_map_idxs(label_mapping: dict, evaluated_labels: list, input_type):
+
+
+def get_map_idxs(label_mapping: dict, optimized_labels: list, input_type):
     assert input_type in ['train_labels', 'test_labels']
-    assert evaluated_labels[0] == 'background'
+    assert optimized_labels[0] == 'background'
 
     # Generate idxs from label_mapping dict
     map_idxs_list = []
-    for reduced_idx, eval_label in enumerate(evaluated_labels):
+    for reduced_idx, eval_label in enumerate(optimized_labels):
         src_idx, target_idx = label_mapping[eval_label]
         # map_idxs_list = [tts_dict[k] for k,v in amos_bcv_dict.items()]
         append_idx = src_idx if input_type == 'train_labels' else target_idx
@@ -294,6 +296,8 @@ def get_map_idxs(label_mapping: dict, evaluated_labels: list, input_type):
     map_idxs = torch.as_tensor(map_idxs_list)
 
     return map_idxs
+
+
 
 def map_label(label, map_idxs, input_format):
     assert input_format in ['logits', 'argmaxed']
@@ -318,105 +322,105 @@ def map_label(label, map_idxs, input_format):
 
 # %%
 # TODO remove these hardcoded dicts
-amos_bcv_dict = {
-    "background": 0,
-    "spleen": 1,
-    "right_kidney": 2,
-    "left_kidney": 3,
-    "gallbladder": 4,
-    "esophagus": 5,
-    "liver": 6,
-    "stomach": 7,
-    "aorta": 8,
-    "inferior_vena_cava": 9,
-    "pancreas": 10,
-    "right_adrenal_gland": 11,
-    "left_adrenal_gland": 12
-}
+# amos_bcv_dict = {
+#     "background": 0,
+#     "spleen": 1,
+#     "right_kidney": 2,
+#     "left_kidney": 3,
+#     "gallbladder": 4,
+#     "esophagus": 5,
+#     "liver": 6,
+#     "stomach": 7,
+#     "aorta": 8,
+#     "inferior_vena_cava": 9,
+#     "pancreas": 10,
+#     "right_adrenal_gland": 11,
+#     "left_adrenal_gland": 12
+# }
 
-tts_dict = {
-    "background": 0,
-    "spleen": 1,
-    "right_kidney": 2,
-    "left_kidney": 3,
-    "gallbladder": 4,
-    "esophagus": 42,
-    "liver": 5,
-    "stomach": 6,
-    "aorta": 7,
-    "inferior_vena_cava": 8,
-    "pancreas": 10,
-    "right_adrenal_gland": 11,
-    "left_adrenal_gland": 12,
+# tts_dict = {
+#     "background": 0,
+#     "spleen": 1,
+#     "right_kidney": 2,
+#     "left_kidney": 3,
+#     "gallbladder": 4,
+#     "esophagus": 42,
+#     "liver": 5,
+#     "stomach": 6,
+#     "aorta": 7,
+#     "inferior_vena_cava": 8,
+#     "pancreas": 10,
+#     "right_adrenal_gland": 11,
+#     "left_adrenal_gland": 12,
 
-    "aorta": 7,
-    "inferior_vena_cava": 8,
-    "portal_vein_and_splenic_vein": 9,
-    "left_myocardium": 44,
-    "left_atrium": 45,
-    "left_ventricle": 46,
-    "right_atrium": 47,
-    "right_ventricle": 48,
-    "pulmonary_artery": 49,
+#     "aorta": 7,
+#     "inferior_vena_cava": 8,
+#     "portal_vein_and_splenic_vein": 9,
+#     "left_myocardium": 44,
+#     "left_atrium": 45,
+#     "left_ventricle": 46,
+#     "right_atrium": 47,
+#     "right_ventricle": 48,
+#     "pulmonary_artery": 49,
 
-    "L1": 22,
-    "L2": 21,
-    "L3": 20,
-    "L4": 19,
-    "L5": 18,
-}
+#     "L1": 22,
+#     "L2": 21,
+#     "L3": 20,
+#     "L4": 19,
+#     "L5": 18,
+# }
 
-mmwhs_dict = {
-    "background": 0,
-    "left_myocardium": 1,
-    "left_atrium": 2,
-    "left_ventricle": 3,
-    "right_atrium": 4,
-    "right_ventricle": 5,
-    "aorta": 6,
-    "pulmonary_artery": 7
-}
+# mmwhs_dict = {
+#     "background": 0,
+#     "left_myocardium": 1,
+#     "left_atrium": 2,
+#     "left_ventricle": 3,
+#     "right_atrium": 4,
+#     "right_ventricle": 5,
+#     "aorta": 6,
+#     "pulmonary_artery": 7
+# }
 
-myo_spine_dict = dict(
-    background=0,
-    L1=1,
-    L2=2,
-    L3=3,
-    L4=4,
-    L5=5,
-)
+# myo_spine_dict = dict(
+#     background=0,
+#     L1=1,
+#     L2=2,
+#     L3=3,
+#     L4=4,
+#     L5=5,
+# )
 
-dataset_labels_dict = dict(
-    BCV=amos_bcv_dict,
-    AMOS=amos_bcv_dict,
-    TotalSegmentator=tts_dict,
-    MMWHS=mmwhs_dict,
-    MMWHS_CT=mmwhs_dict,
-    MyoSegmenTUM_spine=myo_spine_dict
-)
+# dataset_labels_dict = dict(
+#     BCV=amos_bcv_dict,
+#     AMOS=amos_bcv_dict,
+#     TotalSegmentator=tts_dict,
+#     MMWHS=mmwhs_dict,
+#     MMWHS_CT=mmwhs_dict,
+#     MyoSegmenTUM_spine=myo_spine_dict
+# )
 
 # %%
 
 # TODO remove these hardcoded definitions
-EVALUATED_LABELS_DICT = {
-    'AMOS->BCV': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
-    'BCV->AMOS': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
-    'TotalSegmentator->AMOS': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
-    'TotalSegmentator->BCV': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
-    'TotalSegmentator->MMWHS': [
-        'background',
-        # 'aorta',
-        'left_myocardium', 'left_atrium', 'left_ventricle', 'right_atrium', 'right_ventricle',
-        # 'pulmonary_artery'
-    ],
-    'MMWHS_CT->MMWHS': [
-        'background',
-        # 'aorta',
-        'left_myocardium', 'left_atrium', 'left_ventricle', 'right_atrium', 'right_ventricle',
-        # 'pulmonary_artery'
-    ],
-    'TotalSegmentator->MyoSegmenTUM_spine': ["background", "L1", "L2", "L3", "L4", "L5"],
-}
+# optimized_labels_DICT = {
+#     'AMOS->BCV': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
+#     'BCV->AMOS': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
+#     'TotalSegmentator->AMOS': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
+#     'TotalSegmentator->BCV': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
+#     'TotalSegmentator->MMWHS': [
+#         'background',
+#         # 'aorta',
+#         'left_myocardium', 'left_atrium', 'left_ventricle', 'right_atrium', 'right_ventricle',
+#         # 'pulmonary_artery'
+#     ],
+#     'MMWHS_CT->MMWHS': [
+#         'background',
+#         # 'aorta',
+#         'left_myocardium', 'left_atrium', 'left_ventricle', 'right_atrium', 'right_ventricle',
+#         # 'pulmonary_artery'
+#     ],
+#     'TotalSegmentator->MyoSegmenTUM_spine': ["background", "L1", "L2", "L3", "L4", "L5"],
+# }
 
 # CONFIG_DICT = dict(
 #     train_data='BCV',
@@ -442,10 +446,10 @@ EVALUATED_LABELS_DICT = {
 
 INTENSITY_AUG_FUNCTION_DICT = {
     'disabled': lambda img: img,
-    'gin': gin_aug
+    'GIN': gin_aug
 }
 
-# 
+#
 trainer_dict = {
     'NNUNET': 'nnUNetTrainer__nnUNetPlans__3d_fullres',
     'NNUNET_BN': 'nnUNetTrainerBN__nnUNetPlans__3d_fullres',
@@ -540,7 +544,7 @@ def get_parameters_save_path(save_path, ofile, ensemble_idx, train_on_all_test_s
 
 
 
-def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label_mapping, modifier_fn_module, run_name=None, debug=False):
+def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label_mapping, modifier_fn_module, run_name=None, debug=False):
 
     # Load model
     model_training_output_path = config['pretrained_weights_file']
@@ -574,7 +578,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
     sitk_io = SimpleITKIO()
 
     zero_grid = torch.zeros([B] + patch_size + [3], device=device)
-    identity_grid = F.affine_grid(torch.eye(4, device=device).repeat(B,1,1)[:,:3], [B, 1] + patch_size)
+    identity_grid = F.affine_grid(torch.eye(4, device=device).repeat(B,1,1)[:,:3], [B, 1] + patch_size, align_corners=False)
 
     if config['tta_across_all_samples']:
         sample_range = [0]
@@ -673,8 +677,8 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
                         if config['spatial_aug_type'] == 'affine' and config['do_spatial_aug_in'] in ['branch_a', 'both']:
                             R_a, R_a_inverse = get_rand_affine(B, flip=False)
                             R_a, R_a_inverse = R_a.to(device=device), R_a_inverse.to(device=device)
-                            grid_a = grid_a + (F.affine_grid(R_a, [B, 1] + patch_size) - identity_grid)
-                            grid_a_inverse = grid_a_inverse + (F.affine_grid(R_a_inverse, [B, 1] + patch_size) - identity_grid)
+                            grid_a = grid_a + (F.affine_grid(R_a, [B, 1] + patch_size, align_corners=False) - identity_grid)
+                            grid_a_inverse = grid_a_inverse + (F.affine_grid(R_a_inverse, [B, 1] + patch_size, align_corners=False) - identity_grid)
 
                         if config['spatial_aug_type'] == 'deformable' and config['do_spatial_aug_in'] in ['branch_a', 'both']:
                             grid_a_deformable, grid_a_deformable_inverse = get_disp_field(B, patch_size, factor=0.5, interpolation_factor=5, device=device)
@@ -687,7 +691,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
 
                         model.apply(buffer_running_stats)
                         target_a = model(imgs_aug_a)
-                        target_a = map_label(target_a, get_map_idxs(train_test_label_mapping, evaluated_labels, input_type='train_labels'), input_format='logits')
+                        target_a = map_label(target_a, get_map_idxs(train_test_label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
 
                         if isinstance(target_a, tuple):
                             target_a = target_a[0]
@@ -717,8 +721,8 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
                         if config['spatial_aug_type'] == 'affine' and config['do_spatial_aug_in'] in ['branch_b', 'both']:
                             R_b, R_b_inverse = get_rand_affine(B, flip=False)
                             R_b, R_b_inverse = R_b.to(device=device), R_b_inverse.to(device=device)
-                            grid_b = grid_b + (F.affine_grid(R_b, [B, 1] + patch_size) - identity_grid)
-                            grid_b_inverse = grid_b_inverse + (F.affine_grid(R_b_inverse, [B, 1] + patch_size) - identity_grid)
+                            grid_b = grid_b + (F.affine_grid(R_b, [B, 1] + patch_size, align_corners=False) - identity_grid)
+                            grid_b_inverse = grid_b_inverse + (F.affine_grid(R_b_inverse, [B, 1] + patch_size, align_corners=False) - identity_grid)
 
                         if config['spatial_aug_type'] == 'deformable' and config['do_spatial_aug_in'] in ['branch_b', 'both']:
                             grid_b_deformable, grid_b_deformable_inverse = get_disp_field(B, patch_size, factor=0.5, interpolation_factor=5, device=device)
@@ -731,7 +735,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
 
                         model.apply(apply_running_stats)
                         target_b = model(imgs_aug_b)
-                        target_b = map_label(target_b, get_map_idxs(train_test_label_mapping, evaluated_labels, input_type='train_labels'), input_format='logits')
+                        target_b = map_label(target_b, get_map_idxs(train_test_label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
 
                         if isinstance(target_b, tuple):
                             target_b = target_b[0]
@@ -775,12 +779,12 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
                         if isinstance(output_eval, tuple):
                             output_eval = output_eval[0]
 
-                        output_eval = map_label(output_eval, get_map_idxs(train_test_label_mapping, evaluated_labels, input_type='train_labels'), input_format='logits')
+                        output_eval = map_label(output_eval, get_map_idxs(train_test_label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
                         target_argmax = output_eval.argmax(1)
 
-                        labels = map_label(labels, get_map_idxs(train_test_label_mapping, evaluated_labels, input_type='test_labels'), input_format='argmaxed').long()
+                        labels = map_label(labels, get_map_idxs(train_test_label_mapping, optimized_labels, input_type='test_labels'), input_format='argmaxed').long()
                         d_tgt_val = dice_coeff(
-                            target_argmax, labels, len(evaluated_labels)
+                            target_argmax, labels, len(optimized_labels)
                         )
                         # # Omit adrenal glands
                         # d_tgt_val = d_tgt_val[1:BCV_AMOS_NUM_CLASSES]
@@ -847,7 +851,7 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
             plans_manager, configuration_manager, dataset_json, inference_allowed_mirroring_axes,
             device=torch.device(device))
 
-        predicted_output = map_label(torch.as_tensor(predicted_output[0]), get_map_idxs(train_test_label_mapping, evaluated_labels, input_type='train_labels'), input_format='argmaxed').squeeze(0)
+        predicted_output = map_label(torch.as_tensor(predicted_output[0]), get_map_idxs(train_test_label_mapping, optimized_labels, input_type='train_labels'), input_format='argmaxed').squeeze(0)
         sitk_io.write_seg(predicted_output.numpy(), prediction_save_path, properties=tta_data[smp_idx]['data_properites'])
 
         all_prediction_save_paths.append(prediction_save_path)
@@ -870,18 +874,18 @@ def tta_main(config, tta_data_dir, save_path, evaluated_labels, train_test_label
 
         seg, sitk_stuff = image_reader_writer.read_seg(copied_label_path)
         seg = torch.as_tensor(seg)
-        mapped_seg = map_label(seg, get_map_idxs(train_test_label_mapping, evaluated_labels, input_type='test_labels'), input_format='argmaxed').squeeze(0)
+        mapped_seg = map_label(seg, get_map_idxs(train_test_label_mapping, optimized_labels, input_type='test_labels'), input_format='argmaxed').squeeze(0)
         image_reader_writer.write_seg(mapped_seg.squeeze(0).numpy(), copied_label_path, sitk_stuff)
 
-    with open(save_path / 'evaluated_labels.json', 'w') as f:
-        json.dump({v:k for k,v in enumerate(evaluated_labels)}, f, indent=4)
+    with open(save_path / 'optimized_labels.json', 'w') as f:
+        json.dump({v:k for k,v in enumerate(optimized_labels)}, f, indent=4)
 
     # Run postprocessing
     postprocessing_function_dict[config['train_tta_data_map']](save_path)
 
     compute_metrics_on_folder_simple(
         folder_ref=path_for_mapped_targets, folder_pred=save_path,
-        labels=list(range(len(evaluated_labels))),
+        labels=list(range(len(optimized_labels))),
         num_processes=0, chill=True)
 
     with open(save_path / 'summary.json', 'r') as f:
@@ -899,18 +903,18 @@ PROJECT_NAME = 'nnunet_tta'
 
 # %%
 # TODO remove those debugging lines
-if False:
-    CONFIG_DICT = update_data_mapping_config(CONFIG_DICT)
+# if False:
+#     CONFIG_DICT = update_data_mapping_config(CONFIG_DICT)
 
-    debug_path = Path(NNUNET_BASE_DIR + "nnUNetV2_TTA_results") / 'debug'
-    if debug_path.is_dir():
-        shutil.rmtree(debug_path)
+#     debug_path = Path(NNUNET_BASE_DIR + "nnUNetV2_TTA_results") / 'debug'
+#     if debug_path.is_dir():
+#         shutil.rmtree(debug_path)
 
-    tta_main(CONFIG_DICT, NNUNET_BASE_DIR + "nnUNetV2_TTA_results",
-                get_evaluated_labels(CONFIG_DICT),
-                get_train_test_label_mapping(CONFIG_DICT),
-                'debug', debug=False)
-    sys.exit(0)
+#     tta_main(CONFIG_DICT, NNUNET_BASE_DIR + "nnUNetV2_TTA_results",
+#                 get_optimized_labels(CONFIG_DICT),
+#                 get_train_test_label_mapping(CONFIG_DICT),
+#                 'debug', debug=False)
+#     sys.exit(0)
 
 
 
@@ -980,19 +984,19 @@ class DGTTAProgram():
                             Can be numeric or one of ['TS104_GIN', 'TS104_MIND', 'TS104_GIN_MIND']''')
         parser.add_argument('tta_task_id', help='Task ID for TTA')
         parser.add_argument('--pretrainer', help='Trainer to use for pretraining', default='nnUNetTrainer_GIN_MIND')
-        parser.add_argument('--pretrained-config', help='Fold ID of nnUNet model to use for pretraining', default='3d_fullres')
-        parser.add_argument('--pretrained-fold', help='Fold ID of nnUNet model to use for pretraining', default='0')
+        parser.add_argument('--pretrainer_config', help='Fold ID of nnUNet model to use for pretraining', default='3d_fullres')
+        parser.add_argument('--pretrainer_fold', help='Fold ID of nnUNet model to use for pretraining', default='0')
 
         args = parser.parse_args(sys.argv[2:])
         pretrained_task_id = int(args.pretrained_task_id) \
             if args.pretrained_task_id.isnumeric() else args.pretrained_task_id
-        pretrained_fold = int(args.pretrained_fold) \
-            if args.pretrained_fold.isnumeric() else args.pretrained_fold
+        pretrainer_fold = int(args.pretrainer_fold) \
+            if args.pretrainer_fold.isnumeric() else args.pretrainer_fold
 
         dg_tta.tta.config_log_utils.prepare_tta(pretrained_task_id, int(args.tta_task_id),
                                                 pretrainer=args.pretrainer,
-                                                pretrained_config=args.pretrained_config,
-                                                pretrained_fold=pretrained_fold)
+                                                pretrainer_config=args.pretrainer_config,
+                                                pretrainer_fold=pretrainer_fold)
 
     def run_tta(self):
         parser = argparse.ArgumentParser(description='Run DG-TTA')
@@ -1000,6 +1004,9 @@ class DGTTAProgram():
                             Task ID for pretrained model.
                             Can be numeric or one of ['TS104_GIN', 'TS104_MIND', 'TS104_GIN_MIND']''')
         parser.add_argument('tta_task_id', help='Task ID for TTA')
+        parser.add_argument('--pretrainer', help='Trainer to use for pretraining', default='nnUNetTrainer_GIN_MIND')
+        parser.add_argument('--pretrainer_config', help='Fold ID of nnUNet model to use for pretraining', default='3d_fullres')
+        parser.add_argument('--pretrainer_fold', help='Fold ID of nnUNet model to use for pretraining', default='0')
 
         args = parser.parse_args(sys.argv[2:])
 
@@ -1007,7 +1014,9 @@ class DGTTAProgram():
         pretrained_task_id = int(args.pretrained_task_id) \
             if args.pretrained_task_id.isnumeric() else args.pretrained_task_id
 
-        tta_data_dir, plan_dir, results_dir, pretrained_task_name, tta_task_name = get_tta_folders(pretrained_task_id, int(args.tta_task_id))
+        tta_data_dir, plan_dir, results_dir, pretrained_task_name, tta_task_name = \
+            get_tta_folders(pretrained_task_id, int(args.tta_task_id), \
+                            args.pretrainer, args.pretrainer_config, args.pretrainer_fold)
 
         with open(Path(plan_dir / 'tta_plan.json'), 'r') as f:
             config = json.load(f)

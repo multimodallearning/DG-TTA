@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "cwd": "/home/weihsbach/storage/staff/christianweihsbach/DG-TTA",
-            "args": ["prepare_tta", "803", "804"],
+            "args": ["prepare_tta", "804", "803", "--pretrainer", "nnUNetTrainer_GIN"],
             "env": {
                 "DG_TTA_ROOT": "/home/weihsbach/storage/staff/christianweihsbach/DG-TTA/test_env/dg_tta",
                 "nnUNet_raw": "/home/weihsbach/storage/staff/christianweihsbach/nnunet/nnUNetV2_raw",
@@ -28,7 +28,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "cwd": "/home/weihsbach/storage/staff/christianweihsbach/DG-TTA",
-            "args": ["run_tta", "803", "804"],
+            "args": ["run_tta", "804", "803", "--pretrainer", "nnUNetTrainer_GIN"],
             "env": {
                 "DG_TTA_ROOT": "/home/weihsbach/storage/staff/christianweihsbach/DG-TTA/test_env/dg_tta",
                 "nnUNet_raw": "/home/weihsbach/storage/staff/christianweihsbach/nnunet/nnUNetV2_raw",
