@@ -35,6 +35,7 @@ TEMPLATE_CONFIG = dict(
     do_intensity_aug_in='none', # ['branch_a', 'branch_b', 'both', 'none']
     do_spatial_aug_in='both', # ['branch_a', 'branch_b', 'both', 'none']
 
+    num_processes=1,
     wandb_mode='disabled',
 )
 
@@ -208,15 +209,15 @@ def prepare_tta(pretrained_task_id, tta_task_id,
     initial_config = TEMPLATE_CONFIG.copy()
     initial_config['pretrained_weights_filepath'] = str(weights_file_path)
 
+    # Retrive possible labels to be optimized (may require manual tweaking later)
+    intersection_classes = list(set(pretrained_classes.keys()).intersection(set(tta_task_classes)))
+    assert 'background' in intersection_classes, 'Background class must be present in both datasets!'
+    intersection_classes.remove('background')
+    intersection_classes.insert(0, 'background')
+    initial_config['optimized_labels'] = intersection_classes
+
     with open(plan_dir / "tta_plan.json", 'w') as f:
         json.dump(initial_config, f, indent=4)
-
-    with open(plan_dir / "optimized_labels.json", 'w') as f:
-        intersection_classes = list(set(pretrained_classes.keys()).intersection(set(tta_task_classes)))
-        assert 'background' in intersection_classes, 'Background class must be present in both datasets!'
-        intersection_classes.remove('background')
-        intersection_classes.insert(0, 'background')
-        json.dump(intersection_classes, f, indent=4)
 
     # Dump modifier functions
     modifier_src = inspect.getsource(ModifierFunctions)

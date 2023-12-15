@@ -10,30 +10,27 @@ from copy import deepcopy
 import json
 from datetime import datetime
 from contextlib import nullcontext
-from collections import defaultdict
 
 import torch
 from torch._dynamo import OptimizedModule
 import torch.nn.functional as F
+
+from tqdm import trange,tqdm
+import matplotlib.pyplot as plt
+if importlib.util.find_spec('wandb'):
+    import wandb
 
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder_simple
 from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
 
 import randomname
-if importlib.util.find_spec('wandb'):
-    import wandb
-
-from tqdm import trange,tqdm
-import matplotlib.pyplot as plt
-
-from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
 
 import dg_tta
 from dg_tta.__build__ import inject_dg_trainers_into_nnunet
 from dg_tta.utils import disable_internal_augmentation
 from dg_tta.gin import gin_aug
-from dg_tta.tta.torch_utils import load_batch_train, map_label, soft_dice_loss, fix_all, release_all, release_norms, get_module_data, set_module_data, register_forward_pre_hook_at_beginning, register_forward_hook_at_beginning, hookify, generate_label_mapping, get_map_idxs
+from dg_tta.tta.torch_utils import load_batch_train, map_label, dice_coeff, soft_dice_loss, fix_all, release_all, release_norms, get_module_data, set_module_data, register_forward_pre_hook_at_beginning, register_forward_hook_at_beginning, hookify, generate_label_mapping, get_map_idxs
 from dg_tta.tta.augmentation_utils import get_disp_field, get_rand_affine
 from dg_tta.tta.config_log_utils import wandb_run, load_current_modifier_functions, get_global_idx, get_tta_folders
 
@@ -47,20 +44,6 @@ INTENSITY_AUG_FUNCTION_DICT = {
 
 
 
-def dice_coeff(outputs, labels, max_label):
-    dice = torch.FloatTensor(max_label - 1).fill_(0)
-
-    for label_num in range(1, max_label):
-        iflat = (outputs == label_num).view(-1).float()
-        tflat = (labels == label_num).view(-1).float()
-        intersection = torch.mean(iflat * tflat)
-        dice[label_num - 1] = (2.0 * intersection) / (
-            1e-8 + torch.mean(iflat) + torch.mean(tflat)
-        )
-    return dice
-
-
-
 def load_tta_data(config, task_raw_path, predictor, fixed_sample_idx):
     # TODO: enable loading of differently sized images
     task_raw_path = Path(task_raw_path)
@@ -70,18 +53,16 @@ def load_tta_data(config, task_raw_path, predictor, fixed_sample_idx):
     part_id = 0
     num_parts = 1
     save_probabilities = False
-    num_processes_preprocessing = 1 # TODO make this a setting
+    num_processes_preprocessing = config['num_processes']
     output_folder_or_list_of_truncated_output_files = ""
 
-    list_of_lists_or_source_folder = Path(task_raw_path / "imagesTs")
-
-    with open(task_raw_path / "dataset.json", 'r') as f:
-        dataset_json = json.load(f)
+    source_folder = Path(task_raw_path / "imagesTs")
+    file_list = source_folder.glob(f"./*{predictor.dataset_json['file_ending']}")
 
     if fixed_sample_idx is not None:
-        list_of_lists_or_source_folder = [[e] for e in list_of_lists_or_source_folder.glob(f"./*{dataset_json['file_ending']}")][fixed_sample_idx:fixed_sample_idx+1]
+        list_of_lists_or_source_folder = [[e] for e in file_list][fixed_sample_idx:fixed_sample_idx+1]
     else:
-        list_of_lists_or_source_folder = str(list_of_lists_or_source_folder)
+        list_of_lists_or_source_folder = str(source_folder)
 
     (
         list_of_lists_or_source_folder,
@@ -145,10 +126,9 @@ def load_network(weights_file):
 
 
 
-def run_inference(tta_data, model, predictor, all_tta_parameter_paths):
-
+def run_inference(config, tta_data, model, predictor, all_tta_parameter_paths):
     save_probabilities = False
-    num_processes_segmentation_export = 1
+    num_processes_segmentation_export = config['num_processes']
 
     tta_parameters = []
     for _path in all_tta_parameter_paths:
@@ -221,7 +201,7 @@ def get_parameters_save_path(save_path, ofile, ensemble_idx, train_on_all_test_s
 
 
 
-def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label_mapping, modifier_fn_module, run_name=None, debug=False):
+def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, modifier_fn_module, run_name, device='cuda', debug=False):
     # Load model
     pretrained_weights_filepath = config['pretrained_weights_filepath']
     predictor, patch_size, network, parameters = load_network(pretrained_weights_filepath)
@@ -239,13 +219,9 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
     num_epochs = config['epochs']
     start_tta_at_epoch = config['start_tta_at_epoch']
 
-    device='cuda'
+    optimized_labels = config['optimized_labels']
 
-    if run_name is not None:
-        save_path = Path(save_path) / run_name
-    else:
-        save_path = Path(save_path) / ("RUN__" + "__".join([f"{k}_{v}" for k,v in config.items()]))
-
+    save_path = Path(save_base_path) / run_name
     save_path.mkdir(exist_ok=True, parents=False)
 
     with open(save_path / 'tta_plan.json', 'w') as f:
@@ -276,7 +252,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
                 # Only train a specific sample
                 continue
 
-        tta_sample = tta_sample.to(device=device)
+        tta_sample = tta_sample.to(device)
 
         ensemble_parameter_paths = []
 
@@ -293,7 +269,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
             intensity_aug_func = INTENSITY_AUG_FUNCTION_DICT[config['intensity_aug_function']]
 
             model = get_model_from_network(network, parameters, modifier_fn_module)
-            model = model.to(device=device)
+            model = model.to(device)
 
             optimizer = torch.optim.AdamW(model.parameters(), lr=config['lr'])
 
@@ -346,7 +322,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
 
                         if config['spatial_aug_type'] == 'affine' and config['do_spatial_aug_in'] in ['branch_a', 'both']:
                             R_a, R_a_inverse = get_rand_affine(B, flip=False)
-                            R_a, R_a_inverse = R_a.to(device=device), R_a_inverse.to(device=device)
+                            R_a, R_a_inverse = R_a.to(device), R_a_inverse.to(device)
                             grid_a = grid_a + (F.affine_grid(R_a, [B, 1] + patch_size, align_corners=False) - identity_grid)
                             grid_a_inverse = grid_a_inverse + (F.affine_grid(R_a_inverse, [B, 1] + patch_size, align_corners=False) - identity_grid)
 
@@ -390,7 +366,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
 
                         if config['spatial_aug_type'] == 'affine' and config['do_spatial_aug_in'] in ['branch_b', 'both']:
                             R_b, R_b_inverse = get_rand_affine(B, flip=False)
-                            R_b, R_b_inverse = R_b.to(device=device), R_b_inverse.to(device=device)
+                            R_b, R_b_inverse = R_b.to(device), R_b_inverse.to(device)
                             grid_b = grid_b + (F.affine_grid(R_b, [B, 1] + patch_size, align_corners=False) - identity_grid)
                             grid_b_inverse = grid_b_inverse + (F.affine_grid(R_b_inverse, [B, 1] + patch_size, align_corners=False) - identity_grid)
 
@@ -517,7 +493,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
         disable_internal_augmentation()
         model = get_model_from_network(network)
 
-        run_inference(tta_data[smp_idx:smp_idx+1], model, predictor, ensemble_parameter_paths)
+        run_inference(config, tta_data[smp_idx:smp_idx+1], model, predictor, ensemble_parameter_paths)
 
         predicted_output_array, data_properties = sitk_io.read_seg(prediction_save_path)
         predicted_output = map_label(
@@ -530,7 +506,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
         all_prediction_save_paths.append(prediction_save_path)
 
     # End of sample loop
-    gt_labels_path = tta_data_dir / "labelsTs"
+    gt_labels_path = tta_data_dir / "labelsTs" # TODO fix this
 
     tqdm.write('Evaluating predictions...')
 
@@ -633,6 +609,7 @@ class DGTTAProgram():
         parser.add_argument('--pretrainer', help='Trainer to use for pretraining', default='nnUNetTrainer_GIN_MIND')
         parser.add_argument('--pretrainer_config', help='Fold ID of nnUNet model to use for pretraining', default='3d_fullres')
         parser.add_argument('--pretrainer_fold', help='Fold ID of nnUNet model to use for pretraining', default='0')
+        parser.add_argument('--device', help='Device to be used', default='cuda')
 
         args = parser.parse_args(sys.argv[2:])
         pretrained_task_id = int(args.pretrained_task_id) \
@@ -654,9 +631,6 @@ class DGTTAProgram():
         with open(Path(plan_dir / 'tta_plan.json'), 'r') as f:
             config = json.load(f)
 
-        with open(Path(plan_dir) / 'optimized_labels.json', 'r') as f:
-            optimized_labels = json.load(f)
-
         with open(Path(plan_dir) / f"{pretrained_task_name}_label_mapping.json", 'r') as f:
             pretrained_label_mapping = json.load(f)
 
@@ -666,7 +640,7 @@ class DGTTAProgram():
         label_mapping = generate_label_mapping(pretrained_label_mapping, tta_task_label_mapping)
 
         modifier_fn_module = load_current_modifier_functions(plan_dir)
-        tta_main(config, tta_data_dir, results_dir, optimized_labels, label_mapping, modifier_fn_module, run_name=run_name, debug=False)
+        tta_main(config, tta_data_dir, results_dir, label_mapping, modifier_fn_module, run_name=run_name, device=torch.device(args.device), debug=False)
 
 
 

@@ -73,6 +73,7 @@ def load_batch_train(train_data, batch_idx, patch_size, affine_rand=0.05, fixed_
     return train_img, train_label
 
 
+
 def soft_dice_loss(fixed,moving):
     # TODO refactor
     B,C,D,H,W = fixed.shape
@@ -86,6 +87,20 @@ def soft_dice_loss(fixed,moving):
     else:
         dice  = nominator / denominator # Do not add an eps here, it disturbs the consistency
 
+    return dice
+
+
+
+def dice_coeff(outputs, labels, max_label):
+    dice = torch.FloatTensor(max_label - 1).fill_(0)
+
+    for label_num in range(1, max_label):
+        iflat = (outputs == label_num).view(-1).float()
+        tflat = (labels == label_num).view(-1).float()
+        intersection = torch.mean(iflat * tflat)
+        dice[label_num - 1] = (2.0 * intersection) / (
+            1e-8 + torch.mean(iflat) + torch.mean(tflat)
+        )
     return dice
 
 
