@@ -1,61 +1,52 @@
-
-# %%
-
-NNUNET_BASE_DIR = ''
+import sys
 import os
-import randomname
-from copy import deepcopy
-from torch._dynamo import OptimizedModule
-import json
-from dg_tta.tta.config_log_utils import get_tta_folders
-import nnunetv2
-from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
-import torch
 import re
-from datetime import datetime
+from pathlib import Path
 import importlib
+import shutil
+import json
+import argparse
+from copy import deepcopy
+import json
+from datetime import datetime
+from contextlib import nullcontext
+from collections import defaultdict
+
+import torch
+from torch._dynamo import OptimizedModule
+import torch.nn.functional as F
+
+from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder_simple
+from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
+
+import randomname
 if importlib.util.find_spec('wandb'):
     import wandb
-import shutil
-from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
-import json
-from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
-from pathlib import Path
-from torch._dynamo import OptimizedModule
-from pathlib import Path
 
 from tqdm import trange,tqdm
-import torch.nn.functional as F
-import torch.nn as nn
-import sys
 import matplotlib.pyplot as plt
-from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder_simple
-import nibabel as nib
-from dg_tta.__build__ import inject_dg_trainers_into_nnunet
-from dg_tta.tta.config_log_utils import get_global_idx
 
-import numpy as np
-from contextlib import nullcontext
-from pathlib import Path
 from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
 
-from collections import defaultdict
-from dg_tta.tta.torch_utils import load_batch_train
-from dg_tta.tta.torch_utils import soft_dice_loss
-from dg_tta.tta.torch_utils import fix_all, release_all, release_norms
-from dg_tta.tta.augmentation_utils import get_disp_field, gin_mind_aug
-from dg_tta.mind import MIND3D
-from dg_tta.tta.torch_utils import get_module_data, set_module_data
-from dg_tta.tta.augmentation_utils import get_rand_affine
-from dg_tta.utils import disable_internal_augmentation, check_internal_augmentation_disabled
-from dg_tta.gin import gin_aug
 import dg_tta
-from dg_tta.tta.config_log_utils import wandb_run, load_current_modifier_functions
-import shutil
-import argparse
-from dg_tta.tta.torch_utils import register_forward_pre_hook_at_beginning, register_forward_hook_at_beginning, hookify
+from dg_tta.__build__ import inject_dg_trainers_into_nnunet
+from dg_tta.utils import disable_internal_augmentation
+from dg_tta.gin import gin_aug
+from dg_tta.tta.torch_utils import load_batch_train, map_label, soft_dice_loss, fix_all, release_all, release_norms, get_module_data, set_module_data, register_forward_pre_hook_at_beginning, register_forward_hook_at_beginning, hookify, generate_label_mapping, get_map_idxs
+from dg_tta.tta.augmentation_utils import get_disp_field, get_rand_affine
+from dg_tta.tta.config_log_utils import wandb_run, load_current_modifier_functions, get_global_idx, get_tta_folders
 
-# %%
+
+
+PROJECT_NAME = 'nnunet_tta'
+INTENSITY_AUG_FUNCTION_DICT = {
+    'disabled': lambda img: img,
+    'GIN': gin_aug
+}
+
+
+
 def dice_coeff(outputs, labels, max_label):
     dice = torch.FloatTensor(max_label - 1).fill_(0)
 
@@ -69,7 +60,7 @@ def dice_coeff(outputs, labels, max_label):
     return dice
 
 
-# %%
+
 def load_tta_data(task_raw_path, predictor, fixed_sample_idx):
     # TODO: enable loading of differently sized images
     task_raw_path = Path(task_raw_path)
@@ -132,7 +123,6 @@ def load_tta_data(task_raw_path, predictor, fixed_sample_idx):
 
 
 def load_model(weights_file):
-
     model_training_output_path = Path(*Path(weights_file).parts[:-2])
     fold = Path(weights_file).parts[-2].replace('fold_', '')
     use_folds = [int(fold)] if fold.isnumeric() else fold
@@ -162,12 +152,7 @@ def run_inference(tta_data, predictor, network, all_tta_parameter_paths,
                   plans_manager, configuration_manager, dataset_json, inference_allowed_mirroring_axes,
                   device='cpu'):
 
-    tile_step_size = 0.5
-    use_gaussian = True
-    use_mirroring = False
     save_probabilities = False
-    verbose = False
-    perform_everything_on_gpu = True
     num_processes_segmentation_export = 1
 
     tta_parameters = []
@@ -178,77 +163,6 @@ def run_inference(tta_data, predictor, network, all_tta_parameter_paths,
     predictor.network = network
     predictor.list_of_parameters = tta_parameters
     predictor.predict_from_data_iterator(tta_data, save_probabilities, num_processes_segmentation_export)
-
-    # return nnUNetPredictor.predict_from_data_iterator(tta_data, network, tta_parameters, plans_manager, configuration_manager, dataset_json,
-    #                             inference_allowed_mirroring_axes, tile_step_size, use_gaussian, use_mirroring,
-    #                             perform_everything_on_gpu, verbose, save_probabilities,
-    #                             num_processes_segmentation_export, device)
-
-
-# %% [markdown]
-# # Pre/Postprocessing methods
-
-# %%
-
-
-# %%
-# TODO find a way to have these functions in a separate definition file
-def ts_amos_pre_forward_hook_fn(input_data):
-    if isinstance(input_data, tuple):
-        input_data = input_data[0]
-    input_data = input_data.flip(-1)
-    return input_data
-
-def ts_amos_forward_hook_fn(output_data):
-    if isinstance(output_data, tuple):
-        output_data = output_data[0]
-    output_data = output_data.flip(-1)
-    return output_data
-
-def ts_mmwhs_pre_forward_hook_fn(input_data):
-    if isinstance(input_data, tuple):
-        input_data = input_data[0]
-    input_data = input_data.transpose(-2,-3).flip([-2,-1]) # works! MMWHS to TS transform
-    return input_data
-
-def ts_mmwhs_forward_hook_fn(output_data):
-    if isinstance(output_data, tuple):
-        output_data = output_data[0]
-    output_data = output_data.flip([-2,-1]).transpose(-2,-3) # works! TS to MMWHS transform
-    return output_data
-
-def ts_myo_spine_pre_forward_hook_fn(input_data):
-    if isinstance(input_data, tuple):
-        input_data = input_data[0]
-    input_data = input_data.flip([-2,-3])
-    return input_data
-
-def ts_myo_spine_forward_hook_fn(output_data):
-    if isinstance(output_data, tuple):
-        output_data = output_data[0]
-    output_data = output_data.flip([-2,-3])
-    return output_data
-
-def ts_myo_spine_postprocessing(output_folder):
-    DILATION_SIZE = 9
-
-    output_folder = Path(output_folder)
-    all_target_paths = (output_folder / "mapped_targets").glob("*nii.gz")
-    all_prediction_paths = (output_folder).glob("*nii.gz")
-
-    kernel = torch.ones(1,1,DILATION_SIZE,DILATION_SIZE,DILATION_SIZE)
-
-    for target_path, prediction_path in zip(all_target_paths, all_prediction_paths):
-        target_data = torch.as_tensor(nib.load(target_path).get_fdata())
-        prediction_nii = nib.load(prediction_path)
-        prediction_data = torch.as_tensor(prediction_nii.get_fdata())
-
-        dilated_target = torch.nn.functional.conv3d(target_data[None,None,:],kernel.to(target_data.dtype), padding=DILATION_SIZE//2).squeeze()
-        dilated_target_mask = (dilated_target > 0).float()
-
-        masked_prediction = prediction_data * dilated_target_mask
-        nib.save(nib.Nifti1Image(masked_prediction.int().numpy(),
-                                 affine=prediction_nii.affine), prediction_path)
 
 
 
@@ -269,232 +183,6 @@ def prepare_mind_layers(model):
 
 
 
-def generate_label_mapping(source_label_dict, target_label_dict):
-    # TODO permit user definition an alternative mapping dict per task
-    assert all([isinstance(k, str) for k in source_label_dict.keys()])
-    assert all([isinstance(k, str) for k in target_label_dict.keys()])
-    assert set(source_label_dict.keys()).intersection(target_label_dict.keys()), "There are no intersecting label names in given dicts."
-    mapped_label = []
-
-    mapping_dict = dict.fromkeys(list(source_label_dict.keys()) + list(target_label_dict.keys()))
-
-    for key in mapping_dict:
-        if key in source_label_dict and key in target_label_dict:
-            mapping_dict[key] = (source_label_dict[key], target_label_dict[key])
-
-    return {k:v for k,v in mapping_dict.items() if v is not None}
-
-
-
-def get_map_idxs(label_mapping: dict, optimized_labels: list, input_type):
-    assert input_type in ['train_labels', 'test_labels']
-    assert optimized_labels[0] == 'background'
-
-    # Generate idxs from label_mapping dict
-    map_idxs_list = []
-    for reduced_idx, eval_label in enumerate(optimized_labels):
-        src_idx, target_idx = label_mapping[eval_label]
-        # map_idxs_list = [tts_dict[k] for k,v in amos_bcv_dict.items()]
-        append_idx = src_idx if input_type == 'train_labels' else target_idx
-        map_idxs_list.append(append_idx)
-
-    map_idxs = torch.as_tensor(map_idxs_list)
-
-    return map_idxs
-
-
-
-def map_label(label, map_idxs, input_format):
-    assert input_format in ['logits', 'argmaxed']
-
-    if input_format == 'logits':
-        # We have a non argmaxed map, suppose that C dimension is label dimension
-        mapped_label = label
-        # Swap B,C and subselect
-        mapped_label = mapped_label.transpose(0,1)[map_idxs].transpose(0,1)
-    else:
-        mapped_label = torch.zeros_like(label)
-        for lbl_idx, map_idx in enumerate(map_idxs):
-            mapped_label[label == map_idx] = lbl_idx
-
-    return mapped_label
-
-# %% [markdown]
-# # Define settings
-
-# %% [markdown]
-# ## Dataset dicts (changed names to get automatic mapping right)
-
-# %%
-# TODO remove these hardcoded dicts
-# amos_bcv_dict = {
-#     "background": 0,
-#     "spleen": 1,
-#     "right_kidney": 2,
-#     "left_kidney": 3,
-#     "gallbladder": 4,
-#     "esophagus": 5,
-#     "liver": 6,
-#     "stomach": 7,
-#     "aorta": 8,
-#     "inferior_vena_cava": 9,
-#     "pancreas": 10,
-#     "right_adrenal_gland": 11,
-#     "left_adrenal_gland": 12
-# }
-
-# tts_dict = {
-#     "background": 0,
-#     "spleen": 1,
-#     "right_kidney": 2,
-#     "left_kidney": 3,
-#     "gallbladder": 4,
-#     "esophagus": 42,
-#     "liver": 5,
-#     "stomach": 6,
-#     "aorta": 7,
-#     "inferior_vena_cava": 8,
-#     "pancreas": 10,
-#     "right_adrenal_gland": 11,
-#     "left_adrenal_gland": 12,
-
-#     "aorta": 7,
-#     "inferior_vena_cava": 8,
-#     "portal_vein_and_splenic_vein": 9,
-#     "left_myocardium": 44,
-#     "left_atrium": 45,
-#     "left_ventricle": 46,
-#     "right_atrium": 47,
-#     "right_ventricle": 48,
-#     "pulmonary_artery": 49,
-
-#     "L1": 22,
-#     "L2": 21,
-#     "L3": 20,
-#     "L4": 19,
-#     "L5": 18,
-# }
-
-# mmwhs_dict = {
-#     "background": 0,
-#     "left_myocardium": 1,
-#     "left_atrium": 2,
-#     "left_ventricle": 3,
-#     "right_atrium": 4,
-#     "right_ventricle": 5,
-#     "aorta": 6,
-#     "pulmonary_artery": 7
-# }
-
-# myo_spine_dict = dict(
-#     background=0,
-#     L1=1,
-#     L2=2,
-#     L3=3,
-#     L4=4,
-#     L5=5,
-# )
-
-# dataset_labels_dict = dict(
-#     BCV=amos_bcv_dict,
-#     AMOS=amos_bcv_dict,
-#     TotalSegmentator=tts_dict,
-#     MMWHS=mmwhs_dict,
-#     MMWHS_CT=mmwhs_dict,
-#     MyoSegmenTUM_spine=myo_spine_dict
-# )
-
-# %%
-
-# TODO remove these hardcoded definitions
-# optimized_labels_DICT = {
-#     'AMOS->BCV': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
-#     'BCV->AMOS': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
-#     'TotalSegmentator->AMOS': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
-#     'TotalSegmentator->BCV': ["background", "spleen", "right_kidney", "left_kidney", "gallbladder", "esophagus", "liver", "stomach", "aorta", "inferior_vena_cava", "pancreas"],
-#     'TotalSegmentator->MMWHS': [
-#         'background',
-#         # 'aorta',
-#         'left_myocardium', 'left_atrium', 'left_ventricle', 'right_atrium', 'right_ventricle',
-#         # 'pulmonary_artery'
-#     ],
-#     'MMWHS_CT->MMWHS': [
-#         'background',
-#         # 'aorta',
-#         'left_myocardium', 'left_atrium', 'left_ventricle', 'right_atrium', 'right_ventricle',
-#         # 'pulmonary_artery'
-#     ],
-#     'TotalSegmentator->MyoSegmenTUM_spine': ["background", "L1", "L2", "L3", "L4", "L5"],
-# }
-
-# CONFIG_DICT = dict(
-#     train_data='BCV',
-#     fold='0',
-#     data_postload_fn=None,
-#     trainer='GIN+MIND',
-#     tta_data='AMOS',
-#     intensity_aug_function='GIN',
-#     train_on_all_test_samples=False,
-#     params_with_grad='all', # all, norms, encoder
-#     lr=1e-5,
-#     fixed_sample_idx=None,
-#     ensemble_count=3,
-#     epochs=12,
-
-#     have_grad_in='branch_a', # ['branch_a', 'branch_b', 'both']
-#     do_intensity_aug_in='none', # ['branch_a', 'branch_b', 'both', 'none']
-#     do_spatial_aug_in='both', # ['branch_a', 'branch_b', 'both', 'none']
-#     spatial_aug_type='affine', # ['affine', 'deformable']
-
-#     wandb_mode='online',
-# )
-
-INTENSITY_AUG_FUNCTION_DICT = {
-    'disabled': lambda img: img,
-    'GIN': gin_aug
-}
-
-#
-trainer_dict = {
-    'NNUNET': 'nnUNetTrainer__nnUNetPlans__3d_fullres',
-    'NNUNET_BN': 'nnUNetTrainerBN__nnUNetPlans__3d_fullres',
-    'GIN': 'nnUNetTrainer_GIN__nnUNetPlans__3d_fullres',
-    'GIN_INSANE': 'nnUNetTrainer_GIN_INSANE__nnUNetPlans__3d_fullres',
-    'MIND': 'nnUNetTrainer_MIND__nnUNetPlans__3d_fullres',
-    'GIN+MIND': 'nnUNetTrainer_GIN_MIND__nnUNetPlans__3d_fullres',
-    'InsaneDA': 'nnUNetTrainer_insaneDA__nnUNetPlans__3d_fullres',
-}
-
-base_data_dict = dict(
-    AMOS = NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset803_AMOS_w_gallbladder",
-    BCV = NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset804_BCV_w_gallbladder",
-    TotalSegmentator = NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset505_TS104",
-    MMWHS = NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset656_MMWHS_RESAMPLE_ONLY",
-    MMWHS_CT = NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset657_MMWHS_CT_RESAMPLE_ONLY",
-    MyoSegmenTUM_spine = NNUNET_BASE_DIR + "nnUNetV2_raw/Dataset810_MyoSegmenTUM_spine"
-)
-
-postprocessing_function_dict = defaultdict(lambda: lambda output_dir: output_dir)
-postprocessing_function_dict['TotalSegmentator->MyoSegmenTUM_spine'] = ts_myo_spine_postprocessing
-
-additional_model_pre_forward_hook_dict = defaultdict(lambda: lambda data: data)
-additional_model_pre_forward_hook_dict['TotalSegmentator->AMOS'] = ts_amos_pre_forward_hook_fn
-additional_model_pre_forward_hook_dict['TotalSegmentator->MMWHS'] = ts_mmwhs_pre_forward_hook_fn
-additional_model_pre_forward_hook_dict['TotalSegmentator->MyoSegmenTUM_spine'] = ts_myo_spine_pre_forward_hook_fn
-
-additional_model_forward_hook_dict = defaultdict(lambda: lambda data: data)
-additional_model_forward_hook_dict['TotalSegmentator->AMOS'] = ts_amos_forward_hook_fn
-additional_model_forward_hook_dict['TotalSegmentator->MMWHS'] = ts_mmwhs_forward_hook_fn
-additional_model_forward_hook_dict['TotalSegmentator->MyoSegmenTUM_spine'] = ts_myo_spine_forward_hook_fn
-
-train_data_model_dict = dict(
-    BCV = NNUNET_BASE_DIR + "nnUNetV2_results/Dataset804_BCV_w_gallbladder",
-    TotalSegmentator = NNUNET_BASE_DIR + "nnUNetV2_results/Dataset505_TS104",
-    MMWHS_CT = NNUNET_BASE_DIR + "nnUNetV2_results/Dataset657_MMWHS_CT_RESAMPLE_ONLY",
-)
-
-
-
 def get_model_from_network(config, predictor, network, modifier_fn_module, parameters=None):
     model = deepcopy(network)
 
@@ -504,23 +192,13 @@ def get_model_from_network(config, predictor, network, modifier_fn_module, param
         else:
             model._orig_mod.load_state_dict(parameters[0])
 
-    # Register a custom augmentation function
-    # check_internal_augmentation_disabled()
-    # custom_intensity_aug_function = INTENSITY_AUG_FUNCTION_DICT[config['intensity_aug_function']]
-    # register_forward_pre_hook_at_beginning(model, hookify(custom_intensity_aug_function, 'forward_pre_hook'))
-
     # Register hook that modifies the input prior to custom augmentation
-    # modify_tta_input_fn = additional_model_pre_forward_hook_dict[config['train_tta_data_map']]
     modify_tta_input_fn = modifier_fn_module.ModifierFunctions.modify_tta_input_fn
     register_forward_pre_hook_at_beginning(model, hookify(modify_tta_input_fn, 'forward_pre_hook'))
-    # model.register_forward_pre_hook(lambda _, input: additional_model_pre_forward_hook_dict[config['train_tta_data_map']](input))
 
     # Register hook that modifies the output of the model
     modfify_tta_model_output_fn = modifier_fn_module.ModifierFunctions.modfify_tta_model_output_fn
     register_forward_hook_at_beginning(model, hookify(modfify_tta_model_output_fn, 'forward_hook'))
-    # model.register_forward_hook(
-    #     lambda model, input, output: \
-    #         (output))
 
     return model
 
@@ -619,13 +297,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
             train_losses = torch.zeros(num_epochs)
             eval_dices = torch.zeros(num_epochs)
 
-            if 'mind' in predictor.trainer_name.lower():
-                intensity_aug_func = lambda imgs: imgs
-
-            elif 'mind' in config['intensity_aug_function'].lower():
-                intensity_aug_func = lambda imgs: imgs # TODO fix this
-            else:
-                intensity_aug_func = INTENSITY_AUG_FUNCTION_DICT[config['intensity_aug_function']]
+            intensity_aug_func = INTENSITY_AUG_FUNCTION_DICT[config['intensity_aug_function']]
 
             model = get_model_from_network(config, predictor, network, modifier_fn_module, parameters)
             model = model.to(device=device)
@@ -791,8 +463,6 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
                         d_tgt_val = dice_coeff(
                             target_argmax, labels, len(optimized_labels)
                         )
-                        # # Omit adrenal glands
-                        # d_tgt_val = d_tgt_val[1:BCV_AMOS_NUM_CLASSES]
 
                         eval_dices[epoch] += 1/num_eval_patches * d_tgt_val.mean().item()
 
@@ -861,7 +531,8 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
         predicted_output_array, data_properties = sitk_io.read_seg(prediction_save_path)
         predicted_output = map_label(
             torch.as_tensor(predicted_output_array),
-            get_map_idxs(train_test_label_mapping, optimized_labels, input_type='train_labels'), input_format='argmaxed'
+            get_map_idxs(train_test_label_mapping, optimized_labels, input_type='train_labels'),
+            input_format='argmaxed'
         ).squeeze(0)
 
         sitk_io.write_seg(predicted_output.numpy(), prediction_save_path, properties=data_properties)
@@ -906,55 +577,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
 
     if wandb.run is not None: wandb.log({f'scores/tta_dice_mean': final_mean_dice})
 
-TTA_OUTPUT_DIR = NNUNET_BASE_DIR + "nnUNetV2_TTA_results"
-PROJECT_NAME = 'nnunet_tta'
 
-
-# %% [markdown]
-# # Run a single run
-
-# %%
-# TODO remove those debugging lines
-# if False:
-#     CONFIG_DICT = update_data_mapping_config(CONFIG_DICT)
-
-#     debug_path = Path(NNUNET_BASE_DIR + "nnUNetV2_TTA_results") / 'debug'
-#     if debug_path.is_dir():
-#         shutil.rmtree(debug_path)
-
-#     tta_main(CONFIG_DICT, NNUNET_BASE_DIR + "nnUNetV2_TTA_results",
-#                 get_optimized_labels(CONFIG_DICT),
-#                 get_train_test_label_mapping(CONFIG_DICT),
-#                 'debug', debug=False)
-#     sys.exit(0)
-
-
-
-# %%
-# TODO externalize this
-# sweep_config_dict = dict(
-#     method='grid',
-#     metric=dict(goal='maximize', name='scores/tta_dice_mean'),
-#     parameters=dict(
-#         have_grad_in=dict(
-#             values=['branch_a', 'both']
-#         ),
-#         do_intensity_aug_in=dict(
-#             values=['branch_a', 'branch_b', 'both', 'none']
-
-#         ),
-#         do_spatial_aug_in=dict(
-#             values=['branch_a', 'branch_b', 'both', 'none']
-
-#         ),
-#         spatial_aug_type=dict(
-#             values=['deformable', 'affine']
-#         ),
-#         # trainer=dict(
-#         #     # values=['NNUNET', 'GIN', 'NNUNET_BN']
-#         # ),
-#     )
-# )
 
 class DGTTAProgram():
 

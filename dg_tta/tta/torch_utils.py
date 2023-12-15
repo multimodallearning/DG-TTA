@@ -177,3 +177,54 @@ def hookify(fn, type):
         return lambda module, input, output: fn(output)
 
     raise ValueError()
+
+
+
+def map_label(label, map_idxs, input_format):
+    assert input_format in ['logits', 'argmaxed']
+
+    if input_format == 'logits':
+        # We have a non argmaxed map, suppose that C dimension is label dimension
+        mapped_label = label
+        # Swap B,C and subselect
+        mapped_label = mapped_label.transpose(0,1)[map_idxs].transpose(0,1)
+    else:
+        mapped_label = torch.zeros_like(label)
+        for lbl_idx, map_idx in enumerate(map_idxs):
+            mapped_label[label == map_idx] = lbl_idx
+
+    return mapped_label
+
+
+
+def generate_label_mapping(source_label_dict, target_label_dict):
+    assert all([isinstance(k, str) for k in source_label_dict.keys()])
+    assert all([isinstance(k, str) for k in target_label_dict.keys()])
+    assert set(source_label_dict.keys()).intersection(target_label_dict.keys()), "There are no intersecting label names in given dicts."
+    mapped_label = []
+
+    mapping_dict = dict.fromkeys(list(source_label_dict.keys()) + list(target_label_dict.keys()))
+
+    for key in mapping_dict:
+        if key in source_label_dict and key in target_label_dict:
+            mapping_dict[key] = (source_label_dict[key], target_label_dict[key])
+
+    return {k:v for k,v in mapping_dict.items() if v is not None}
+
+
+
+def get_map_idxs(label_mapping: dict, optimized_labels: list, input_type):
+    assert input_type in ['train_labels', 'test_labels']
+    assert optimized_labels[0] == 'background'
+
+    # Generate idxs from label_mapping dict
+    map_idxs_list = []
+    for reduced_idx, eval_label in enumerate(optimized_labels):
+        src_idx, target_idx = label_mapping[eval_label]
+        # map_idxs_list = [tts_dict[k] for k,v in amos_bcv_dict.items()]
+        append_idx = src_idx if input_type == 'train_labels' else target_idx
+        map_idxs_list.append(append_idx)
+
+    map_idxs = torch.as_tensor(map_idxs_list)
+
+    return map_idxs
