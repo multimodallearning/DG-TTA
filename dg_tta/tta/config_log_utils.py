@@ -8,14 +8,15 @@ import subprocess
 import shutil
 import inspect
 import json
-import datetime
-import wandb
+
+if importlib.util.find_spec('wandb'):
+    import wandb
 import torch
 
 from nnunetv2.paths import nnUNet_raw, nnUNet_results
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 
-TEMPLATE_CONFIG = dict(
+TEMPLATE_PLAN = dict(
     tta_across_all_samples=False,
     tta_eval_patches=1,
 
@@ -67,40 +68,12 @@ class ModifierFunctions():
 
 
 
-def update_data_mapping_config(config_dict):
-    # TODO: find a better solution for this string thing
-    from_to_str =  f"{config_dict['train_data']}->{config_dict['tta_data']}"
-    config_dict['train_tta_data_map'] = from_to_str
-    return config_dict
-
-
-
-# def get_optimized_labels(config_dict):
-#     return optimized_labels_DICT[config_dict['train_tta_data_map']]
-
-
-
-# def get_train_test_label_mapping(config_dict):
-#     train_test_label_mapping = generate_label_mapping(
-#         dataset_labels_dict[config_dict['train_data']],
-#         dataset_labels_dict[config_dict['tta_data']]
-#     )
-#     return train_test_label_mapping
-
-
-
-# TODO find a solution for auto-naming
-def wandb_run(wandb_project_name, run_name, output_dir, config_dict, label_mapping, optimized_labels, tta_fn):
-    # TODO refactor
-    config_dict = update_data_mapping_config(config_dict)
-    # train_test_label_mapping = get_train_test_label_mapping(config_dict)
-
-    with wandb.init(
+def wandb_run(wandb_project_name, tta_fn, **kwargs):
+    config_dict = kwargs['config_dict']
+    with wandb.init(project=wandb_project_name, name=kwargs['run_name'],
         mode=config_dict['wandb_mode'], config=config_dict, project=wandb_project_name) as run:
-        config = wandb.config
-        now_str = datetime.now().strftime("%Y%m%d__%H_%M_%S")
-        run.name = f"{now_str}_{run.name}"
-        tta_fn(config, output_dir, optimized_labels, label_mapping, run.name, debug=False)
+        kwargs['config_dict'] = wandb.config
+        tta_fn(**kwargs)
     wandb.finish()
     torch.cuda.empty_cache()
 
@@ -206,7 +179,9 @@ def prepare_tta(pretrained_task_id, tta_task_id,
         json.dump(tta_task_classes, f, indent=4)
 
     # Create plan
-    initial_plan = TEMPLATE_CONFIG.copy()
+    initial_plan = TEMPLATE_PLAN.copy()
+    initial_plan['__pretrained_task_name__'] = pretrained_task_name
+    initial_plan['__tta_task_name__'] = tta_task_name
     initial_plan['pretrained_weights_filepath'] = str(weights_file_path)
 
     # Retrive possible labels to be optimized (may require manual tweaking later)
@@ -303,3 +278,14 @@ def get_tta_data_filepaths(tta_task_data_bucket, tta_task_name):
         file_list.extend(filter(lambda x: x.is_file(), src_fld.iterdir()))
 
     return file_list
+
+
+
+def wandb_is_available():
+    return importlib.util.find_spec('wandb')
+
+
+
+def wandb_run_is_available():
+    return importlib.util.find_spec('wandb') is not None \
+        and wandb.run is not None

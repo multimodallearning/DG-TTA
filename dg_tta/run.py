@@ -32,7 +32,7 @@ from dg_tta.utils import disable_internal_augmentation
 from dg_tta.gin import gin_aug
 from dg_tta.tta.torch_utils import load_batch_train, map_label, dice_coeff, soft_dice_loss, fix_all, release_all, release_norms, get_module_data, set_module_data, register_forward_pre_hook_at_beginning, register_forward_hook_at_beginning, hookify, generate_label_mapping, get_map_idxs
 from dg_tta.tta.augmentation_utils import get_disp_field, get_rand_affine
-from dg_tta.tta.config_log_utils import wandb_run, load_current_modifier_functions, get_global_idx, get_tta_folders
+from dg_tta.tta.config_log_utils import wandb_run, load_current_modifier_functions, get_global_idx, get_tta_folders, wandb_is_available
 
 
 
@@ -192,7 +192,7 @@ def get_parameters_save_path(save_path, sample_id, ensemble_idx):
 
 
 
-def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, modifier_fn_module, run_name, device='cuda', debug=False):
+def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modifier_fn_module, device, debug=False):
     # Load model
     pretrained_weights_filepath = config['pretrained_weights_filepath']
     predictor, patch_size, network, parameters = load_network(pretrained_weights_filepath)
@@ -270,7 +270,8 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
             for epoch in tbar:
                 model.train()
                 global_idx = get_global_idx([(smp_idx,num_samples),(ensemble_idx, ensemble_count),(epoch, num_epochs)])
-                if wandb.run is not None: wandb.log({"ref_epoch_idx": epoch}, global_idx)
+                if wandb_is_available():
+                    wandb.log({"ref_epoch_idx": epoch}, global_idx)
                 step_losses = []
 
                 if epoch == start_tta_at_epoch:
@@ -327,7 +328,7 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
 
                         model.apply(buffer_running_stats)
                         target_a = model(imgs_aug_a)
-                        target_a = map_label(target_a, get_map_idxs(train_test_label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
+                        target_a = map_label(target_a, get_map_idxs(label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
 
                         if isinstance(target_a, tuple):
                             target_a = target_a[0]
@@ -371,7 +372,7 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
 
                         model.apply(apply_running_stats)
                         target_b = model(imgs_aug_b)
-                        target_b = map_label(target_b, get_map_idxs(train_test_label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
+                        target_b = map_label(target_b, get_map_idxs(label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
 
                         if isinstance(target_b, tuple):
                             target_b = target_b[0]
@@ -415,10 +416,10 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
                         if isinstance(output_eval, tuple):
                             output_eval = output_eval[0]
 
-                        output_eval = map_label(output_eval, get_map_idxs(train_test_label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
+                        output_eval = map_label(output_eval, get_map_idxs(label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
                         target_argmax = output_eval.argmax(1)
 
-                        labels = map_label(labels, get_map_idxs(train_test_label_mapping, optimized_labels, input_type='test_labels'), input_format='argmaxed').long()
+                        labels = map_label(labels, get_map_idxs(label_mapping, optimized_labels, input_type='test_labels'), input_format='argmaxed').long()
                         d_tgt_val = dice_coeff(
                             target_argmax, labels, len(optimized_labels)
                         )
@@ -428,8 +429,9 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
                     if debug: break
 
                 tbar.set_description(f"epoch, loss = {train_losses[epoch]:.3f}, dice = {eval_dices[epoch]:.2f}")
-                if wandb.run is not None: wandb.log({f'losses/loss__{sample_id}__ensemble_idx_{ensemble_idx}': train_losses[epoch]}, step=global_idx)
-                if wandb.run is not None: wandb.log({f'scores/eval_dice__{sample_id}__ensemble_idx_{ensemble_idx}': eval_dices[epoch]}, step=global_idx)
+                if wandb_is_available():
+                    wandb.log({f'losses/loss__{sample_id}__ensemble_idx_{ensemble_idx}': train_losses[epoch]}, step=global_idx)
+                    wandb.log({f'scores/eval_dice__{sample_id}__ensemble_idx_{ensemble_idx}': eval_dices[epoch]}, step=global_idx)
 
             # Print graphic per ensemble
             # TODO: Externalises / improve the plotting
@@ -484,7 +486,7 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
         predicted_output_array, data_properties = sitk_io.read_seg(prediction_save_path)
         predicted_output = map_label(
             torch.as_tensor(predicted_output_array),
-            get_map_idxs(train_test_label_mapping, optimized_labels, input_type='train_labels'),
+            get_map_idxs(label_mapping, optimized_labels, input_type='train_labels'),
             input_format='argmaxed'
         ).squeeze(0)
 
@@ -514,7 +516,7 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
 
         seg, sitk_stuff = image_reader_writer.read_seg(path_mapped_target)
         seg = torch.as_tensor(seg)
-        mapped_seg = map_label(seg, get_map_idxs(train_test_label_mapping, optimized_labels, input_type='test_labels'), input_format='argmaxed').squeeze(0)
+        mapped_seg = map_label(seg, get_map_idxs(label_mapping, optimized_labels, input_type='test_labels'), input_format='argmaxed').squeeze(0)
         image_reader_writer.write_seg(mapped_seg.squeeze(0).numpy(), path_mapped_target, sitk_stuff)
 
     for bucket in ['Ts', 'Tr']:
@@ -536,7 +538,8 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
             summary_json = json.load(f)
             final_mean_dice = summary_json["foreground_mean"]["Dice"]
 
-        if wandb.run is not None: wandb.log({f'scores/tta_dice_mean_{bucket}': final_mean_dice})
+        if wandb_is_available():
+            wandb.log({f'scores/tta_dice_mean_{bucket}': final_mean_dice})
 
 
 
@@ -635,9 +638,24 @@ class DGTTAProgram():
             tta_task_label_mapping = json.load(f)
 
         label_mapping = generate_label_mapping(pretrained_label_mapping, tta_task_label_mapping)
-
         modifier_fn_module = load_current_modifier_functions(plan_dir)
-        tta_main(config, tta_data_dir, results_dir, label_mapping, modifier_fn_module, run_name=run_name, device=torch.device(args.device), debug=False)
+        device = torch.device(args.device)
+
+        kwargs = dict(
+            run_name=run_name,
+            config=config,
+            tta_data_dir=tta_data_dir,
+            save_base_path=results_dir,
+            label_mapping=label_mapping,
+            modifier_fn_module=modifier_fn_module,
+            device=device
+        )
+
+        if wandb_is_available():
+            wandb_run('DG-TTA', tta_main, **kwargs)
+            sys.exit(0)
+
+        tta_main(**kwargs)
 
 
 
