@@ -3,3 +3,4 @@ template
 test_env
 *.pt
 *.ipynb
+dist

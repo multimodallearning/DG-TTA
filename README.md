@@ -7,3 +7,4 @@
 * Test approach freshly installed
 * Add data preparation notebook
 * Remove fix package dependencies
+* Add epochs for nnUNet trainer

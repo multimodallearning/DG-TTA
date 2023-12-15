@@ -505,9 +505,9 @@ def get_model_from_network(config, predictor, network, modifier_fn_module, param
             model._orig_mod.load_state_dict(parameters[0])
 
     # Register a custom augmentation function
-    check_internal_augmentation_disabled()
-    custom_intensity_aug_function = INTENSITY_AUG_FUNCTION_DICT[config['intensity_aug_function']]
-    register_forward_pre_hook_at_beginning(model, hookify(custom_intensity_aug_function, 'forward_pre_hook'))
+    # check_internal_augmentation_disabled()
+    # custom_intensity_aug_function = INTENSITY_AUG_FUNCTION_DICT[config['intensity_aug_function']]
+    # register_forward_pre_hook_at_beginning(model, hookify(custom_intensity_aug_function, 'forward_pre_hook'))
 
     # Register hook that modifies the input prior to custom augmentation
     # modify_tta_input_fn = additional_model_pre_forward_hook_dict[config['train_tta_data_map']]
@@ -623,7 +623,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
                 intensity_aug_func = lambda imgs: imgs
 
             elif 'mind' in config['intensity_aug_function'].lower():
-                intensity_aug_func = lambda imgs: imgs
+                intensity_aug_func = lambda imgs: imgs # TODO fix this
             else:
                 intensity_aug_func = INTENSITY_AUG_FUNCTION_DICT[config['intensity_aug_function']]
 
