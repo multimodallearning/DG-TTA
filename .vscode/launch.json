@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "cwd": "/home/weihsbach/storage/staff/christianweihsbach/DG-TTA",
-            "args": ["prepare_tta", "804", "803", "--pretrainer", "nnUNetTrainer_GIN"],
+            "args": ["prepare_tta", "804", "803", "--pretrainer", "nnUNetTrainer_GIN", "--tta_task_data_bucket", "imagesTrAndTs"],
             "env": {
                 "DG_TTA_ROOT": "/home/weihsbach/storage/staff/christianweihsbach/DG-TTA/test_env/dg_tta",
                 "nnUNet_raw": "/home/weihsbach/storage/staff/christianweihsbach/nnunet/nnUNetV2_raw",

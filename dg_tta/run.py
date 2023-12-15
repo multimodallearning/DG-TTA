@@ -44,49 +44,41 @@ INTENSITY_AUG_FUNCTION_DICT = {
 
 
 
-def load_tta_data(config, task_raw_path, predictor, fixed_sample_idx):
-    # TODO: enable loading of differently sized images
-    task_raw_path = Path(task_raw_path)
+def get_data_iterator(config, predictor, tta_data_filepaths, task_raw_path, tta_task_data_bucket):
+    assert tta_task_data_bucket in ['imagesTs', 'imagesTr']
+    
+    list_of_lists = [[_path] for _path in tta_data_filepaths \
+                    if Path(_path).parts[-2] == tta_task_data_bucket]
 
-    folder_with_segs_from_prev_stage = task_raw_path / "labelsTs" # TODO make this a setting
-    overwrite = True
-    part_id = 0
-    num_parts = 1
-    save_probabilities = False
-    num_processes_preprocessing = config['num_processes']
-    output_folder_or_list_of_truncated_output_files = ""
-
-    source_folder = Path(task_raw_path / "imagesTs")
-    file_list = source_folder.glob(f"./*{predictor.dataset_json['file_ending']}")
-
-    if fixed_sample_idx is not None:
-        list_of_lists_or_source_folder = [[e] for e in file_list][fixed_sample_idx:fixed_sample_idx+1]
-    else:
-        list_of_lists_or_source_folder = str(source_folder)
+    label_folder = 'labelsTs' if tta_task_data_bucket == 'imagesTs' else 'labelsTr'
 
     (
         list_of_lists_or_source_folder,
         output_filename_truncated,
         seg_from_prev_stage_files,
-    ) = predictor._manage_input_and_output_lists(
-        list_of_lists_or_source_folder,
-        output_folder_or_list_of_truncated_output_files,
-        folder_with_segs_from_prev_stage,
-        overwrite,
-        part_id,
-        num_parts,
-        save_probabilities,
-    )
-    list_of_lists_or_source_folder = list_of_lists_or_source_folder[0:1] # TODO remove
+    ) = predictor._manage_input_and_output_lists(list_of_lists, "", task_raw_path / label_folder)
+
     nnUNetPredictor._internal_get_data_iterator_from_lists_of_filenames
     data_iterator = predictor._internal_get_data_iterator_from_lists_of_filenames(
         list_of_lists_or_source_folder,
         seg_from_prev_stage_files,
         output_filename_truncated,
-        num_processes_preprocessing
+        config['num_processes']
     )
+    return data_iterator
 
-    data = list(data_iterator)
+
+
+def load_tta_data(config, task_raw_path, predictor, fixed_sample_idx):
+    # TODO: enable loading of differently sized images
+    task_raw_path = Path(task_raw_path)
+
+    ts_iterator = get_data_iterator(config, predictor, config['tta_data_filepaths'],
+                      task_raw_path, 'imagesTs')
+    tr_iterator = get_data_iterator(config, predictor, config['tta_data_filepaths'],
+                      task_raw_path, 'imagesTr')
+
+    data = list(ts_iterator) + list(tr_iterator)
     all_imgs = torch.stack([elem['data'][0:1] for elem in data])
     all_segs = torch.stack([elem['data'][1:] for elem in data])
     # Readd background channel (will contain zeros after argmax())
@@ -588,6 +580,8 @@ class DGTTAProgram():
         parser.add_argument('--pretrainer', help='Trainer to use for pretraining', default='nnUNetTrainer_GIN_MIND')
         parser.add_argument('--pretrainer_config', help='Fold ID of nnUNet model to use for pretraining', default='3d_fullres')
         parser.add_argument('--pretrainer_fold', help='Fold ID of nnUNet model to use for pretraining', default='0')
+        parser.add_argument('--tta_task_data_bucket', help='''Can be one of ['imagesTr', 'imagesTs', 'imagesTrAndTs']''', default='imagesTs')
+
 
         args = parser.parse_args(sys.argv[2:])
         pretrained_task_id = int(args.pretrained_task_id) \
@@ -598,7 +592,8 @@ class DGTTAProgram():
         dg_tta.tta.config_log_utils.prepare_tta(pretrained_task_id, int(args.tta_task_id),
                                                 pretrainer=args.pretrainer,
                                                 pretrainer_config=args.pretrainer_config,
-                                                pretrainer_fold=pretrainer_fold)
+                                                pretrainer_fold=pretrainer_fold,
+                                                tta_task_data_bucket=args.tta_task_data_bucket)
 
     def run_tta(self):
         parser = argparse.ArgumentParser(description='Run DG-TTA')
