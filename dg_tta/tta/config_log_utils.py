@@ -16,12 +16,16 @@ from nnunetv2.paths import nnUNet_raw, nnUNet_results
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 
 TEMPLATE_CONFIG = dict(
-    tta_across_all_samples=False,
-
-    lr=1e-5,
     fixed_sample_idx=None,
+    tta_across_all_samples=False,
+    tta_eval_patches=1,
+
+    batch_size=1,
+    patches_to_be_accumulated=16,
+    lr=1e-5,
     ensemble_count=3,
     epochs=12,
+    start_tta_at_epoch=1,
 
     intensity_aug_function='GIN', # ['GIN', 'disabled']
     spatial_aug_type='affine', # ['affine', 'deformable']
@@ -114,9 +118,11 @@ def get_tta_folders(pretrained_task_id, tta_task_id, pretrainer, pretrainer_conf
         pretrained_task_name = pretrained_task_id
 
     fold_folder = f"fold_{pretrainer_fold}" if pretrainer_fold != 'all' else pretrainer_fold
-    map_folder = f"Pretrained_{pretrained_task_name}_at_{tta_task_name}__{pretrainer}__{pretrainer_config}"
-    plan_dir = (root_dir / 'plans' / map_folder / fold_folder)
-    results_dir = (root_dir / 'results' / map_folder / fold_folder)
+    map_folder = f"Pretrained_{pretrained_task_name}_at_{tta_task_name}"
+    pretrainer_folder =f"{pretrainer}__{pretrainer_config}"
+
+    plan_dir = (root_dir / 'plans' / map_folder / pretrainer_folder / fold_folder)
+    results_dir = (root_dir / 'results' / map_folder / pretrainer_folder / fold_folder)
 
     tta_data_dir = Path(nnUNet_raw, tta_task_name)
 
@@ -200,7 +206,7 @@ def prepare_tta(pretrained_task_id, tta_task_id,
 
     # Dump initial config
     initial_config = TEMPLATE_CONFIG.copy()
-    initial_config['pretrained_weights_file'] = str(weights_file_path)
+    initial_config['pretrained_weights_filepath'] = str(weights_file_path)
 
     with open(plan_dir / "tta_plan.json", 'w') as f:
         json.dump(initial_config, f, indent=4)

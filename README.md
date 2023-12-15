@@ -8,3 +8,4 @@
 * Add data preparation notebook
 * Remove fix package dependencies
 * Add epochs for nnUNet trainer
+* Add TTA files to be processed

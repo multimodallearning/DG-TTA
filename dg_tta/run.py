@@ -61,7 +61,7 @@ def dice_coeff(outputs, labels, max_label):
 
 
 
-def load_tta_data(task_raw_path, predictor, fixed_sample_idx):
+def load_tta_data(config, task_raw_path, predictor, fixed_sample_idx):
     # TODO: enable loading of differently sized images
     task_raw_path = Path(task_raw_path)
 
@@ -122,8 +122,8 @@ def load_tta_data(task_raw_path, predictor, fixed_sample_idx):
 
 
 
-def load_model(weights_file):
-    model_training_output_path = Path(*Path(weights_file).parts[:-2])
+def load_network(weights_file):
+    pretrained_weights_filepathpath = Path(*Path(weights_file).parts[:-2])
     fold = Path(weights_file).parts[-2].replace('fold_', '')
     use_folds = [int(fold)] if fold.isnumeric() else fold
     checkpoint_name = "checkpoint_final.pth"
@@ -134,23 +134,18 @@ def load_model(weights_file):
     verbose = False
 
     predictor = nnUNetPredictor(perform_everything_on_gpu=perform_everything_on_gpu, device=device, verbose_preprocessing=verbose)
-    predictor.initialize_from_trained_model_folder(model_training_output_path, use_folds, checkpoint_name)
+    predictor.initialize_from_trained_model_folder(pretrained_weights_filepathpath, use_folds, checkpoint_name)
 
     parameters = predictor.list_of_parameters
-    configuration_manager = predictor.configuration_manager
-    inference_allowed_mirroring_axes = predictor.allowed_mirroring_axes
     plans_manager = predictor.plans_manager
-    dataset_json = predictor.dataset_json
     network = predictor.network
     patch_size = plans_manager.get_configuration(configuration).patch_size
 
-    return predictor, network, parameters, patch_size, configuration_manager, inference_allowed_mirroring_axes, plans_manager, dataset_json
+    return predictor, patch_size, network, parameters
 
 
 
-def run_inference(tta_data, predictor, network, all_tta_parameter_paths,
-                  plans_manager, configuration_manager, dataset_json, inference_allowed_mirroring_axes,
-                  device='cpu'):
+def run_inference(tta_data, model, predictor, all_tta_parameter_paths):
 
     save_probabilities = False
     num_processes_segmentation_export = 1
@@ -159,8 +154,7 @@ def run_inference(tta_data, predictor, network, all_tta_parameter_paths,
     for _path in all_tta_parameter_paths:
         tta_parameters.extend(torch.load(_path))
 
-    network = deepcopy(network)
-    predictor.network = network
+    predictor.network = deepcopy(model)
     predictor.list_of_parameters = tta_parameters
     predictor.predict_from_data_iterator(tta_data, save_probabilities, num_processes_segmentation_export)
 
@@ -183,7 +177,7 @@ def prepare_mind_layers(model):
 
 
 
-def get_model_from_network(config, predictor, network, modifier_fn_module, parameters=None):
+def get_model_from_network(network, parameters=None, modifier_fn_module=None):
     model = deepcopy(network)
 
     if parameters is not None:
@@ -228,23 +222,22 @@ def get_parameters_save_path(save_path, ofile, ensemble_idx, train_on_all_test_s
 
 
 def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label_mapping, modifier_fn_module, run_name=None, debug=False):
-
     # Load model
-    model_training_output_path = config['pretrained_weights_file']
-    predictor, network, parameters, patch_size, configuration_manager, inference_allowed_mirroring_axes, plans_manager, dataset_json = load_model(model_training_output_path)
+    pretrained_weights_filepath = config['pretrained_weights_filepath']
+    predictor, patch_size, network, parameters = load_network(pretrained_weights_filepath)
 
     # Load TTA data
-    tta_imgs_segs, tta_data = load_tta_data(tta_data_dir, predictor, config['fixed_sample_idx'])
+    tta_imgs_segs, tta_data = load_tta_data(config, tta_data_dir, predictor, config['fixed_sample_idx'])
+
+    num_samples = tta_imgs_segs.shape[0]
+    tta_across_all_samples=config['tta_across_all_samples']
 
     ensemble_count = config['ensemble_count']
-    num_samples = tta_imgs_segs.shape[0]
-
-    # TODO make these parameters configurable
-    B = 1
-    ACCUM = 16
-    train_start_epoch = 1
+    B = config['batch_size']
+    patches_to_be_accumulated = config['patches_to_be_accumulated']
+    tta_eval_patches = config['tta_eval_patches']
     num_epochs = config['epochs']
-    num_eval_patches = 1
+    start_tta_at_epoch = config['start_tta_at_epoch']
 
     device='cuda'
 
@@ -263,7 +256,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
     zero_grid = torch.zeros([B] + patch_size + [3], device=device)
     identity_grid = F.affine_grid(torch.eye(4, device=device).repeat(B,1,1)[:,:3], [B, 1] + patch_size, align_corners=False)
 
-    if config['tta_across_all_samples']:
+    if tta_across_all_samples:
         sample_range = [0]
     else:
         sample_range = trange(num_samples, desc='sample')
@@ -272,7 +265,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
 
     for smp_idx in sample_range:
 
-        if config['tta_across_all_samples']:
+        if tta_across_all_samples:
             tta_sample = tta_imgs_segs
             ofile = 'all_samples'
         else:
@@ -289,7 +282,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
 
         for ensemble_idx in trange(ensemble_count, desc='ensemble'):
 
-            tta_parameters_save_path = get_parameters_save_path(save_path, ofile, ensemble_idx, config['tta_across_all_samples'])
+            tta_parameters_save_path = get_parameters_save_path(save_path, ofile, ensemble_idx, tta_across_all_samples)
             if tta_parameters_save_path.is_file():
                 tqdm.write(f"TTA parameters file already exists: {tta_parameters_save_path}")
                 continue
@@ -299,7 +292,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
 
             intensity_aug_func = INTENSITY_AUG_FUNCTION_DICT[config['intensity_aug_function']]
 
-            model = get_model_from_network(config, predictor, network, modifier_fn_module, parameters)
+            model = get_model_from_network(network, parameters, modifier_fn_module)
             model = model.to(device=device)
 
             optimizer = torch.optim.AdamW(model.parameters(), lr=config['lr'])
@@ -314,7 +307,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
                 if wandb.run is not None: wandb.log({"ref_epoch_idx": epoch}, global_idx)
                 step_losses = []
 
-                if epoch == train_start_epoch:
+                if epoch == start_tta_at_epoch:
                     tqdm.write("Starting train")
                     model.apply(fix_all)
                     if config['params_with_grad'] == 'all':
@@ -329,7 +322,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
                     grad_params = {id(p): p.numel() for p in model.parameters() if p.requires_grad}
                     tqdm.write(f"Released #{sum(list(grad_params.values()))/1e6:.2f} million trainable params")
 
-                for _ in range(ACCUM):
+                for _ in range(patches_to_be_accumulated):
 
                     with torch.no_grad():
                         imgs, labels = load_batch_train(
@@ -432,13 +425,13 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
 
                     loss = 1 - soft_dice_loss(sm_a, sm_b)[:,START_CLASS:].mean()
 
-                    loss_accum = loss / ACCUM
+                    loss_accum = loss / patches_to_be_accumulated
                     step_losses.append(loss.detach().cpu())
 
-                    if epoch >= train_start_epoch:
+                    if epoch >= start_tta_at_epoch:
                         loss_accum.backward()
 
-                if epoch >= train_start_epoch:
+                if epoch >= start_tta_at_epoch:
                     optimizer.step()
                     optimizer.zero_grad()
 
@@ -446,7 +439,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
 
                 with torch.inference_mode():
                     model.eval()
-                    for _ in range(num_eval_patches):
+                    for _ in range(tta_eval_patches):
                         imgs, labels = load_batch_train(
                             tta_sample, torch.randperm(tta_sample.shape[0])[:B], patch_size, affine_rand=0,
                             fixed_patch_idx='center', # This is just for evaluation purposes
@@ -464,7 +457,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
                             target_argmax, labels, len(optimized_labels)
                         )
 
-                        eval_dices[epoch] += 1/num_eval_patches * d_tgt_val.mean().item()
+                        eval_dices[epoch] += 1/tta_eval_patches * d_tgt_val.mean().item()
 
                     if debug: break
 
@@ -512,7 +505,7 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
         # ofilename = ofile + ".nii.gz"
 
         for ensemble_idx in range(config['ensemble_count']):
-            ensemble_parameter_paths.append(get_parameters_save_path(save_path, ofile, ensemble_idx, config['tta_across_all_samples']))
+            ensemble_parameter_paths.append(get_parameters_save_path(save_path, ofile, ensemble_idx, tta_across_all_samples))
 
         if config['fixed_sample_idx'] is not None and smp_idx != config['fixed_sample_idx']:
             # Only train a specific sample
@@ -522,11 +515,9 @@ def tta_main(config, tta_data_dir, save_path, optimized_labels, train_test_label
         prediction_save_path = new_ofile + ".nii.gz"
 
         disable_internal_augmentation()
-        model = get_model_from_network(config, predictor, network, modifier_fn_module, parameters=None)
+        model = get_model_from_network(network)
 
-        run_inference(tta_data[smp_idx:smp_idx+1], predictor, model, ensemble_parameter_paths,
-            plans_manager, configuration_manager, dataset_json, inference_allowed_mirroring_axes,
-            device=torch.device(device))
+        run_inference(tta_data[smp_idx:smp_idx+1], model, predictor, ensemble_parameter_paths)
 
         predicted_output_array, data_properties = sitk_io.read_seg(prediction_save_path)
         predicted_output = map_label(
