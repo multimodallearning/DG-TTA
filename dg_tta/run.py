@@ -51,12 +51,13 @@ def get_data_iterator(config, predictor, tta_data_filepaths, task_raw_path, tta_
                     if Path(_path).parts[-2] == tta_task_data_bucket]
 
     label_folder = 'labelsTs' if tta_task_data_bucket == 'imagesTs' else 'labelsTr'
+    output_folder = 'tta_outputTs' if tta_task_data_bucket == 'imagesTs' else 'tta_outputTr'
 
     (
         list_of_lists_or_source_folder,
         output_filename_truncated,
         seg_from_prev_stage_files,
-    ) = predictor._manage_input_and_output_lists(list_of_lists, "", task_raw_path / label_folder)
+    ) = predictor._manage_input_and_output_lists(list_of_lists, output_folder, task_raw_path / label_folder)
 
     nnUNetPredictor._internal_get_data_iterator_from_lists_of_filenames
     data_iterator = predictor._internal_get_data_iterator_from_lists_of_filenames(
@@ -149,7 +150,7 @@ def prepare_mind_layers(model):
 
 
 
-def get_model_from_network(network, parameters=None, modifier_fn_module=None):
+def get_model_from_network(network, modifier_fn_module, parameters=None):
     model = deepcopy(network)
 
     if parameters is not None:
@@ -185,10 +186,8 @@ def apply_running_stats(m):
 
 
 
-def get_parameters_save_path(save_path, ofile, ensemble_idx, train_on_all_test_samples):
-    if train_on_all_test_samples:
-        ofile = 'all_samples'
-    tta_parameters_save_path = save_path / f"{ofile}__ensemble_idx_{ensemble_idx}_tta_parameters.pt"
+def get_parameters_save_path(save_path, sample_id, ensemble_idx):
+    tta_parameters_save_path = save_path / f"{sample_id}__ensemble_idx_{ensemble_idx}_tta_parameters.pt"
     return tta_parameters_save_path
 
 
@@ -234,10 +233,14 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
     for smp_idx in sample_range:
         if tta_across_all_samples:
             tta_sample = tta_imgs_segs
-            ofile = 'all_samples'
+            sample_id = 'all_samples'
+            sub_dir_tta = save_path / 'tta_output'
         else:
             tta_sample = tta_imgs_segs[smp_idx:smp_idx+1]
-            ofile = tta_data[smp_idx]['ofile']
+            sample_id = tta_data[smp_idx]['ofile']
+            sub_dir_tta = save_path / Path(sample_id).parent
+
+        sub_dir_tta.mkdir(exist_ok=True)
 
         tta_sample = tta_sample.to(device)
 
@@ -245,7 +248,7 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
 
         for ensemble_idx in trange(ensemble_count, desc='ensemble'):
 
-            tta_parameters_save_path = get_parameters_save_path(save_path, ofile, ensemble_idx, tta_across_all_samples)
+            tta_parameters_save_path = get_parameters_save_path(save_path, sample_id, ensemble_idx)
             if tta_parameters_save_path.is_file():
                 tqdm.write(f"TTA parameters file already exists: {tta_parameters_save_path}")
                 continue
@@ -255,7 +258,7 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
 
             intensity_aug_func = INTENSITY_AUG_FUNCTION_DICT[config['intensity_aug_function']]
 
-            model = get_model_from_network(network, parameters, modifier_fn_module)
+            model = get_model_from_network(network, modifier_fn_module, parameters)
             model = model.to(device)
 
             optimizer = torch.optim.AdamW(model.parameters(), lr=config['lr'])
@@ -425,8 +428,8 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
                     if debug: break
 
                 tbar.set_description(f"epoch, loss = {train_losses[epoch]:.3f}, dice = {eval_dices[epoch]:.2f}")
-                if wandb.run is not None: wandb.log({f'losses/loss__{ofile}__ensemble_idx_{ensemble_idx}': train_losses[epoch]}, step=global_idx)
-                if wandb.run is not None: wandb.log({f'scores/eval_dice__{ofile}__ensemble_idx_{ensemble_idx}': eval_dices[epoch]}, step=global_idx)
+                if wandb.run is not None: wandb.log({f'losses/loss__{sample_id}__ensemble_idx_{ensemble_idx}': train_losses[epoch]}, step=global_idx)
+                if wandb.run is not None: wandb.log({f'scores/eval_dice__{sample_id}__ensemble_idx_{ensemble_idx}': eval_dices[epoch]}, step=global_idx)
 
             # Print graphic per ensemble
             # TODO: Externalises / improve the plotting
@@ -445,7 +448,7 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
             plt.tight_layout()
 
             tta_parameters = [model.state_dict()]
-            tta_plot_save_path = save_path / f"{ofile}__ensemble_idx_{ensemble_idx}_tta_results.png"
+            tta_plot_save_path = save_path / f"{sample_id}__ensemble_idx_{ensemble_idx}_tta_results.png"
             plt.savefig(tta_plot_save_path)
             plt.close()
 
@@ -454,7 +457,6 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
             if debug: break
         # End of ensemble loop
 
-
     print("Starting prediction")
     all_prediction_save_paths = []
 
@@ -462,19 +464,20 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
         ensemble_parameter_paths = []
 
         tta_sample = tta_imgs_segs[smp_idx:smp_idx+1]
+
+        # Update internal save path for nnUNet
         ofile = tta_data[smp_idx]['ofile']
         new_ofile = str(save_path / ofile)
         tta_data[smp_idx]['ofile'] = new_ofile
-        # ofilename = ofile + ".nii.gz"
+
+        prediction_save_path = Path(new_ofile + ".nii.gz")
+        prediction_save_path.parent.mkdir(exist_ok=True)
 
         for ensemble_idx in range(config['ensemble_count']):
-            ensemble_parameter_paths.append(get_parameters_save_path(save_path, ofile, ensemble_idx, tta_across_all_samples))
-
-        # Save prediction
-        prediction_save_path = new_ofile + ".nii.gz"
+            ensemble_parameter_paths.append(get_parameters_save_path(save_path, sample_id, ensemble_idx))
 
         disable_internal_augmentation()
-        model = get_model_from_network(network)
+        model = get_model_from_network(network, modifier_fn_module)
 
         run_inference(config, tta_data[smp_idx:smp_idx+1], model, predictor, ensemble_parameter_paths)
 
@@ -489,43 +492,51 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
         all_prediction_save_paths.append(prediction_save_path)
 
     # End of sample loop
-    gt_labels_path = tta_data_dir / "labelsTs" # TODO fix this
 
     tqdm.write('Evaluating predictions...')
-
-    path_for_mapped_targets = save_path / 'mapped_targets'
-    path_for_mapped_targets.mkdir(exist_ok=True, parents=False)
 
     image_reader_writer = SimpleITKIO()
 
     for pred_path in all_prediction_save_paths:
-        filename = Path(pred_path).name
-        src_path = Path(gt_labels_path) / filename
-        copied_label_path = path_for_mapped_targets / filename
-        shutil.copy(src_path, copied_label_path)
+        pred_label_name = Path(pred_path).name
+        if 'outputTs' in Path(pred_path).parent.parts[-1]:
+            # TODO make this condition code leaner
+            path_mapped_target = save_path / 'mapped_target_labelsTs' / pred_label_name
+            path_orig_target = tta_data_dir / 'labelsTs' / pred_label_name
+        elif 'outputTr' in Path(pred_path).parent.parts[-1]:
+            path_mapped_target = save_path / 'mapped_target_labelsTr' / pred_label_name
+            path_orig_target = tta_data_dir / 'labelsTr' / pred_label_name
+        else:
+            raise ValueError()
 
-        seg, sitk_stuff = image_reader_writer.read_seg(copied_label_path)
+        path_mapped_target.parent.mkdir(exist_ok=True)
+        shutil.copy(path_orig_target, path_mapped_target)
+
+        seg, sitk_stuff = image_reader_writer.read_seg(path_mapped_target)
         seg = torch.as_tensor(seg)
         mapped_seg = map_label(seg, get_map_idxs(train_test_label_mapping, optimized_labels, input_type='test_labels'), input_format='argmaxed').squeeze(0)
-        image_reader_writer.write_seg(mapped_seg.squeeze(0).numpy(), copied_label_path, sitk_stuff)
+        image_reader_writer.write_seg(mapped_seg.squeeze(0).numpy(), path_mapped_target, sitk_stuff)
 
-    with open(save_path / 'optimized_labels.json', 'w') as f:
-        json.dump({v:k for k,v in enumerate(optimized_labels)}, f, indent=4)
+    for bucket in ['Ts', 'Tr']:
+        all_mapped_targets_path = save_path / f'mapped_target_labels{bucket}'
+        all_pred_targets_path = save_path / f'tta_output{bucket}'
 
-    # Run postprocessing
-    postprocess_results_fn = modifier_fn_module.ModifierFunctions.postprocess_results_fn
-    postprocess_results_fn(save_path)
+        # Run postprocessing
+        postprocess_results_fn = modifier_fn_module.ModifierFunctions.postprocess_results_fn
+        postprocess_results_fn(all_pred_targets_path)
 
-    compute_metrics_on_folder_simple(
-        folder_ref=path_for_mapped_targets, folder_pred=save_path,
-        labels=list(range(len(optimized_labels))),
-        num_processes=1, chill=True)
+        summary_path = f"{save_path}/summary_{bucket}.json"
+        compute_metrics_on_folder_simple(
+            folder_ref=all_mapped_targets_path, folder_pred=all_pred_targets_path,
+            labels=list(range(len(optimized_labels))),
+            output_file=summary_path,
+            num_processes=config['num_processes'], chill=True)
 
-    with open(save_path / 'summary.json', 'r') as f:
-        summary_json = json.load(f)
-        final_mean_dice = summary_json["foreground_mean"]["Dice"]
+        with open(summary_path, 'r') as f:
+            summary_json = json.load(f)
+            final_mean_dice = summary_json["foreground_mean"]["Dice"]
 
-    if wandb.run is not None: wandb.log({f'scores/tta_dice_mean': final_mean_dice})
+        if wandb.run is not None: wandb.log({f'scores/tta_dice_mean_{bucket}': final_mean_dice})
 
 
 
