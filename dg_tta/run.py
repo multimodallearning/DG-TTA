@@ -46,7 +46,7 @@ INTENSITY_AUG_FUNCTION_DICT = {
 
 def get_data_iterator(config, predictor, tta_data_filepaths, task_raw_path, tta_task_data_bucket):
     assert tta_task_data_bucket in ['imagesTs', 'imagesTr']
-    
+
     list_of_lists = [[_path] for _path in tta_data_filepaths \
                     if Path(_path).parts[-2] == tta_task_data_bucket]
 
@@ -69,7 +69,7 @@ def get_data_iterator(config, predictor, tta_data_filepaths, task_raw_path, tta_
 
 
 
-def load_tta_data(config, task_raw_path, predictor, fixed_sample_idx):
+def load_tta_data(config, task_raw_path, predictor):
     # TODO: enable loading of differently sized images
     task_raw_path = Path(task_raw_path)
 
@@ -199,7 +199,7 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
     predictor, patch_size, network, parameters = load_network(pretrained_weights_filepath)
 
     # Load TTA data
-    tta_imgs_segs, tta_data = load_tta_data(config, tta_data_dir, predictor, config['fixed_sample_idx'])
+    tta_imgs_segs, tta_data = load_tta_data(config, tta_data_dir, predictor)
 
     num_samples = tta_imgs_segs.shape[0]
     tta_across_all_samples=config['tta_across_all_samples']
@@ -232,17 +232,12 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
     disable_internal_augmentation() # TODO find a better way do enable-disable internal trainer augmentation
 
     for smp_idx in sample_range:
-
         if tta_across_all_samples:
             tta_sample = tta_imgs_segs
             ofile = 'all_samples'
         else:
             tta_sample = tta_imgs_segs[smp_idx:smp_idx+1]
             ofile = tta_data[smp_idx]['ofile']
-
-            if config['fixed_sample_idx'] is not None and smp_idx != config['fixed_sample_idx']:
-                # Only train a specific sample
-                continue
 
         tta_sample = tta_sample.to(device)
 
@@ -474,10 +469,6 @@ def tta_main(config, tta_data_dir, save_base_path, train_test_label_mapping, mod
 
         for ensemble_idx in range(config['ensemble_count']):
             ensemble_parameter_paths.append(get_parameters_save_path(save_path, ofile, ensemble_idx, tta_across_all_samples))
-
-        if config['fixed_sample_idx'] is not None and smp_idx != config['fixed_sample_idx']:
-            # Only train a specific sample
-            continue
 
         # Save prediction
         prediction_save_path = new_ofile + ".nii.gz"

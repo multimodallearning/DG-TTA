@@ -16,7 +16,6 @@ from nnunetv2.paths import nnUNet_raw, nnUNet_results
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 
 TEMPLATE_CONFIG = dict(
-    fixed_sample_idx=None,
     tta_across_all_samples=False,
     tta_eval_patches=1,
 
