@@ -30,9 +30,9 @@ import dg_tta
 from dg_tta.__build__ import inject_dg_trainers_into_nnunet
 from dg_tta.utils import disable_internal_augmentation
 from dg_tta.gin import gin_aug
-from dg_tta.tta.torch_utils import load_batch_train, map_label, dice_coeff, soft_dice_loss, fix_all, release_all, release_norms, get_module_data, set_module_data, register_forward_pre_hook_at_beginning, register_forward_hook_at_beginning, hookify, generate_label_mapping, get_map_idxs
+from dg_tta.tta.torch_utils import get_batch, map_label, dice_coeff, soft_dice_loss, fix_all, release_all, release_norms, get_module_data, set_module_data, register_forward_pre_hook_at_beginning, register_forward_hook_at_beginning, hookify, generate_label_mapping, get_map_idxs, get_imgs
 from dg_tta.tta.augmentation_utils import get_disp_field, get_rand_affine
-from dg_tta.tta.config_log_utils import wandb_run, load_current_modifier_functions, get_global_idx, get_tta_folders, wandb_is_available
+from dg_tta.tta.config_log_utils import wandb_run, load_current_modifier_functions, get_global_idx, get_tta_folders, wandb_is_available, suppress_stdout
 
 
 
@@ -71,28 +71,15 @@ def get_data_iterator(config, predictor, tta_data_filepaths, task_raw_path, tta_
 
 
 def load_tta_data(config, task_raw_path, predictor):
-    # TODO: enable loading of differently sized images
-    task_raw_path = Path(task_raw_path)
-
-    ts_iterator = get_data_iterator(config, predictor, config['tta_data_filepaths'],
-                      task_raw_path, 'imagesTs')
-    tr_iterator = get_data_iterator(config, predictor, config['tta_data_filepaths'],
-                      task_raw_path, 'imagesTr')
+    with suppress_stdout():
+        ts_iterator = get_data_iterator(config, predictor, config['tta_data_filepaths'],
+                        task_raw_path, 'imagesTs')
+        tr_iterator = get_data_iterator(config, predictor, config['tta_data_filepaths'],
+                        task_raw_path, 'imagesTr')
 
     data = list(ts_iterator) + list(tr_iterator)
-    all_imgs = torch.stack([elem['data'][0:1] for elem in data])
-    all_segs = torch.stack([elem['data'][1:] for elem in data])
-    # Readd background channel (will contain zeros after argmax())
-    all_segs = torch.cat([(all_segs.sum(1, keepdim=True)<1.).float(), all_segs], dim=1).argmax(1, keepdim=True)
 
-    imgs_segs = torch.cat([all_imgs, all_segs], dim=1)
-
-    # Update images of data dictionary
-    for d_idx in range(len(data)):
-        data[d_idx]['data'] = imgs_segs[d_idx:d_idx+1,0]
-        # Segs are deleted here
-
-    return imgs_segs, data
+    return data
 
 
 
@@ -198,9 +185,9 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
     predictor, patch_size, network, parameters = load_network(pretrained_weights_filepath)
 
     # Load TTA data
-    tta_imgs_segs, tta_data = load_tta_data(config, tta_data_dir, predictor)
+    tta_data = load_tta_data(config, tta_data_dir, predictor)
 
-    num_samples = tta_imgs_segs.shape[0]
+    num_samples = len(tta_data)
     tta_across_all_samples=config['tta_across_all_samples']
 
     ensemble_count = config['ensemble_count']
@@ -232,17 +219,15 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
 
     for smp_idx in sample_range:
         if tta_across_all_samples:
-            tta_sample = tta_imgs_segs
+            tta_tens_list = [e['data'] for e in tta_data]
             sample_id = 'all_samples'
             sub_dir_tta = save_path / 'tta_output'
         else:
-            tta_sample = tta_imgs_segs[smp_idx:smp_idx+1]
+            tta_tens_list = [tta_data[smp_idx]['data']]
             sample_id = tta_data[smp_idx]['ofile']
             sub_dir_tta = save_path / Path(sample_id).parent
 
         sub_dir_tta.mkdir(exist_ok=True)
-
-        tta_sample = tta_sample.to(device)
 
         ensemble_parameter_paths = []
 
@@ -292,8 +277,8 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
                 for _ in range(patches_to_be_accumulated):
 
                     with torch.no_grad():
-                        imgs, labels = load_batch_train(
-                            tta_sample, torch.randperm(tta_sample.shape[0])[:B], patch_size, affine_rand=0,
+                        imgs, labels = get_batch(
+                            tta_tens_list, torch.randperm(len(tta_tens_list))[:B], patch_size,
                             fixed_patch_idx=None
                         )
                     # TODO: split this into two function calls
@@ -407,8 +392,8 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
                 with torch.inference_mode():
                     model.eval()
                     for _ in range(tta_eval_patches):
-                        imgs, labels = load_batch_train(
-                            tta_sample, torch.randperm(tta_sample.shape[0])[:B], patch_size, affine_rand=0,
+                        imgs, labels = get_batch(
+                            tta_data, torch.randperm(len(tta_data))[:B], patch_size,
                             fixed_patch_idx='center', # This is just for evaluation purposes
                         )
 
@@ -464,8 +449,8 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
 
     for smp_idx in trange(num_samples, desc='sample'):
         ensemble_parameter_paths = []
-
-        tta_sample = tta_imgs_segs[smp_idx:smp_idx+1]
+        tta_sample = tta_data[smp_idx]
+        tta_sample['data'] = get_imgs(tta_sample['data'].unsqueeze(0)).squeeze(0)
 
         # Update internal save path for nnUNet
         ofile = tta_data[smp_idx]['ofile']
@@ -481,7 +466,7 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
         disable_internal_augmentation()
         model = get_model_from_network(network, modifier_fn_module)
 
-        run_inference(config, tta_data[smp_idx:smp_idx+1], model, predictor, ensemble_parameter_paths)
+        run_inference(config, [tta_sample], model, predictor, ensemble_parameter_paths)
 
         predicted_output_array, data_properties = sitk_io.read_seg(prediction_save_path)
         predicted_output = map_label(

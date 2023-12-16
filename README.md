@@ -9,3 +9,4 @@
 * Remove fix package dependencies
 * Add epochs for nnUNet trainer
 * Add TTA files to be processed
+* Check what happens if seg is missing

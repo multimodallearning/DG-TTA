@@ -8,6 +8,7 @@ import subprocess
 import shutil
 import inspect
 import json
+from contextlib import contextmanager
 
 if importlib.util.find_spec('wandb'):
     import wandb
@@ -289,3 +290,15 @@ def wandb_is_available():
 def wandb_run_is_available():
     return importlib.util.find_spec('wandb') is not None \
         and wandb.run is not None
+
+
+
+@contextmanager
+def suppress_stdout():
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        sys.stdout = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout

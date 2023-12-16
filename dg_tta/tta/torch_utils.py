@@ -7,21 +7,21 @@ MOD_GET_FN = lambda self, key: self[int(key)] if isinstance(self, torch.nn.Seque
                                               else getattr(self, key)
 
 
-def load_batch_train(train_data, batch_idx, patch_size, affine_rand=0.05, fixed_patch_idx=None):
+def get_batch(tensor_data, batch_idx, patch_size, fixed_patch_idx=None):
     # TODO refactor
-    assert fixed_patch_idx in range(8) or fixed_patch_idx == None or fixed_patch_idx == 'center'
+    assert fixed_patch_idx in range(8) \
+        or fixed_patch_idx == None \
+        or fixed_patch_idx == 'center'
 
-    num_batch = len(batch_idx)
-    C = max(train_data.shape[1] - 1, 1)
-    train_img = torch.zeros(num_batch, C, patch_size[0], patch_size[1], patch_size[2]).to(train_data.device)
+    device = tensor_data.device
+    B = len(batch_idx)
+    b_img = torch.zeros(B, 1, patch_size[0], patch_size[1], patch_size[2]).to(device)
+    b_label = torch.zeros(B, patch_size[0], patch_size[1], patch_size[2]).to(device).long()
 
-    train_img1 = None
-    train_label = torch.zeros(num_batch, patch_size[0], patch_size[1], patch_size[2]).to(train_data.device).long()
-
-    for b in range(num_batch):
+    for b in range(B):
         with torch.no_grad():
             # Get patches
-            data = train_data[batch_idx[b]]
+            data = tensor_data[batch_idx[b]]
             if fixed_patch_idx is None:
                 rand_patch1 = torch.randint(max(data.shape[1] - patch_size[0], 0), (1,))
                 rand_patch2 = torch.randint(max(data.shape[2] - patch_size[1], 0), (1,))
@@ -46,8 +46,7 @@ def load_batch_train(train_data, batch_idx, patch_size, affine_rand=0.05, fixed_
                 max(data.shape[3], patch_size[2]),
             )
             grid = F.affine_grid(
-                torch.eye(3, 4).unsqueeze(0).to(train_data.device)
-                + affine_rand * torch.randn(1, 3, 4).to(train_data.device),
+                torch.eye(3, 4).unsqueeze(0).to(device),
                 out_shape, align_corners=False
             )
             patch_grid = grid[
@@ -56,21 +55,31 @@ def load_batch_train(train_data, batch_idx, patch_size, affine_rand=0.05, fixed_
                 rand_patch2 : rand_patch2 + patch_size[1],
                 rand_patch3 : rand_patch3 + patch_size[2],
             ]
-            if train_data.shape[1] > 1:
-                train_label[b] = (
-                    F.grid_sample(
-                        data[-1:].unsqueeze(0).to(train_data.device), patch_grid, mode="nearest", align_corners=False
-                    )
-                    .squeeze()
-                    .long()
-                )
-            train_img[b] = F.grid_sample(
-                data[:-1].unsqueeze(0).to(train_data.device), patch_grid, align_corners=False
+
+            extracted_patch = F.grid_sample(
+                data[:-1].unsqueeze(0).to(tensor_data.device), patch_grid, align_corners=False
             ).squeeze()
 
-    train_label = train_label.clamp_min_(0)
+            b_img[b], b_label[b] = get_imgs_segs_stack(extracted_patch)
 
-    return train_img, train_label
+    return b_img, b_label
+
+
+
+def get_imgs_segs_stack(tta_sample):
+    imgs = tta_sample[:,0:1]
+    segs = tta_sample[:,1:]
+
+    segs_oh_w_bg = torch.cat([(segs.sum(1, keepdim=True)<1.).float(), segs], dim=1)
+    segs_argmaxed = segs_oh_w_bg.argmax(1, keepdim=True)
+
+    return torch.cat([imgs, segs_argmaxed], dim=1)
+
+
+
+def get_imgs(tta_sample):
+    imgs = tta_sample[:,0:1]
+    return imgs
 
 
 
