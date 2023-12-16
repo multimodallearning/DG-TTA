@@ -69,10 +69,10 @@ class ModifierFunctions():
 
 
 def wandb_run(wandb_project_name, tta_fn, **kwargs):
-    config_dict = kwargs['config_dict']
+    config = kwargs['config']
     with wandb.init(project=wandb_project_name, name=kwargs['run_name'],
-        mode=config_dict['wandb_mode'], config=config_dict, project=wandb_project_name) as run:
-        kwargs['config_dict'] = wandb.config
+        mode=config['wandb_mode'], config=config):
+        kwargs['config'] = wandb.config
         tta_fn(**kwargs)
     wandb.finish()
     torch.cuda.empty_cache()

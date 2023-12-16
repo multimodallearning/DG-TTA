@@ -4,3 +4,4 @@ test_env
 *.pt
 *.ipynb
 dist
+wandb
