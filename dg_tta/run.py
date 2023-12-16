@@ -279,7 +279,7 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
                     with torch.no_grad():
                         imgs, labels = get_batch(
                             tta_tens_list, torch.randperm(len(tta_tens_list))[:B], patch_size,
-                            fixed_patch_idx=None
+                            fixed_patch_idx=None, device=device
                         )
                     # TODO: split this into two function calls
                     # Augment branch a
@@ -393,8 +393,9 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
                     model.eval()
                     for _ in range(tta_eval_patches):
                         imgs, labels = get_batch(
-                            tta_data, torch.randperm(len(tta_data))[:B], patch_size,
+                            tta_tens_list, torch.randperm(len(tta_tens_list))[:B], patch_size,
                             fixed_patch_idx='center', # This is just for evaluation purposes
+                            device=device
                         )
 
                         output_eval = model(imgs)

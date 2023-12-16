@@ -7,13 +7,12 @@ MOD_GET_FN = lambda self, key: self[int(key)] if isinstance(self, torch.nn.Seque
                                               else getattr(self, key)
 
 
-def get_batch(tensor_data, batch_idx, patch_size, fixed_patch_idx=None):
-    # TODO refactor
+def get_batch(tensor_list, batch_idx, patch_size, fixed_patch_idx=None, device='cpu'):
     assert fixed_patch_idx in range(8) \
         or fixed_patch_idx == None \
         or fixed_patch_idx == 'center'
 
-    device = tensor_data.device
+    device = torch.device(device)
     B = len(batch_idx)
     b_img = torch.zeros(B, 1, patch_size[0], patch_size[1], patch_size[2]).to(device)
     b_label = torch.zeros(B, patch_size[0], patch_size[1], patch_size[2]).to(device).long()
@@ -21,22 +20,24 @@ def get_batch(tensor_data, batch_idx, patch_size, fixed_patch_idx=None):
     for b in range(B):
         with torch.no_grad():
             # Get patches
-            data = tensor_data[batch_idx[b]]
+            data = tensor_list[batch_idx[b]]
             if fixed_patch_idx is None:
-                rand_patch1 = torch.randint(max(data.shape[1] - patch_size[0], 0), (1,))
-                rand_patch2 = torch.randint(max(data.shape[2] - patch_size[1], 0), (1,))
-                rand_patch3 = torch.randint(max(data.shape[3] - patch_size[2], 0), (1,))
+                rand_patch_d = torch.randint(max(data.shape[1] - patch_size[0], 0), (1,))
+                rand_patch_h = torch.randint(max(data.shape[2] - patch_size[1], 0), (1,))
+                rand_patch_w = torch.randint(max(data.shape[3] - patch_size[2], 0), (1,))
+
             elif fixed_patch_idx == 'center':
-                rand_patch1 = max((data.shape[1]-patch_size[0])//2, 0)
-                rand_patch2 = max((data.shape[2]-patch_size[1])//2, 0)
-                rand_patch3 = max((data.shape[3]-patch_size[2])//2, 0)
+                rand_patch_d = max((data.shape[1]-patch_size[0])//2, 0)
+                rand_patch_h = max((data.shape[2]-patch_size[1])//2, 0)
+                rand_patch_w = max((data.shape[3]-patch_size[2])//2, 0)
+
             else:
                 p_idxs = f"{fixed_patch_idx:03b}"
                 p_idxs = [int(idx) for idx in [*p_idxs]]
-                rand_patch1 = p_idxs[0] * patch_size[0]
-                rand_patch2 = p_idxs[1] * patch_size[1]
-                rand_patch3 = p_idxs[2] * patch_size[2]
-                # print(rand_patch1, rand_patch2, rand_patch3)
+                rand_patch_d = p_idxs[0] * patch_size[0]
+                rand_patch_h = p_idxs[1] * patch_size[1]
+                rand_patch_w = p_idxs[2] * patch_size[2]
+            # print(rand_patch_d, rand_patch_h, rand_patch_w)
 
             out_shape = (
                 1,
@@ -51,16 +52,16 @@ def get_batch(tensor_data, batch_idx, patch_size, fixed_patch_idx=None):
             )
             patch_grid = grid[
                 :,
-                rand_patch1 : rand_patch1 + patch_size[0],
-                rand_patch2 : rand_patch2 + patch_size[1],
-                rand_patch3 : rand_patch3 + patch_size[2],
+                rand_patch_d : rand_patch_d + patch_size[0],
+                rand_patch_h : rand_patch_h + patch_size[1],
+                rand_patch_w : rand_patch_w + patch_size[2],
             ]
 
             extracted_patch = F.grid_sample(
-                data[:-1].unsqueeze(0).to(tensor_data.device), patch_grid, align_corners=False
-            ).squeeze()
+                data.unsqueeze(0).to(device), patch_grid, align_corners=False
+            )
 
-            b_img[b], b_label[b] = get_imgs_segs_stack(extracted_patch)
+            b_img[b], b_label[b] = get_imgs_segs_stack(extracted_patch)[0]
 
     return b_img, b_label
 
@@ -83,13 +84,13 @@ def get_imgs(tta_sample):
 
 
 
-def soft_dice_loss(fixed,moving):
-    # TODO refactor
-    B,C,D,H,W = fixed.shape
+def soft_dice_loss(smp_a, smp_b):
+    B,_,D,H,W = smp_a.shape
+    d=2
     # TODO Add d parameter
 
-    nominator = (4. * fixed*moving).reshape(B,-1,D*H*W).mean(2)
-    denominator = ((fixed + moving)**2).reshape(B,-1,D*H*W).mean(2)
+    nominator = (4.*smp_a*smp_b).reshape(B,-1,D*H*W).mean(2)
+    denominator = ((smp_a + smp_b)**d).reshape(B,-1,D*H*W).mean(2)
 
     if denominator.sum() == 0.:
         dice = (nominator * 0.) + 1.
