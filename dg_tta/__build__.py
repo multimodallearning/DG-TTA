@@ -1,11 +1,10 @@
 import shutil
 from pathlib import Path
 import nnunetv2
-import dg_tta
-
+from dg_tta import pretraining
 
 def inject_dg_trainers_into_nnunet():
-    dg_trainer_paths = Path(dg_tta.pretraining.__file__).parent.glob(
+    dg_trainer_paths = Path(pretraining.__file__).parent.glob(
         "nnUNetTrainer*.py"
     )
     target_dir = Path(nnunetv2.__path__[0], "training/nnUNetTrainer/variants/dg_tta/")
