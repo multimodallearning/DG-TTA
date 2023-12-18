@@ -59,6 +59,9 @@ def get_data_iterator(config, predictor, tta_data_filepaths, dataset_raw_path, t
         seg_from_prev_stage_files,
     ) = predictor._manage_input_and_output_lists(list_of_lists, output_folder, dataset_raw_path / label_folder)
 
+    if len(list_of_lists_or_source_folder) == 0:
+        return iter(())
+
     nnUNetPredictor._internal_get_data_iterator_from_lists_of_filenames
     data_iterator = predictor._internal_get_data_iterator_from_lists_of_filenames(
         list_of_lists_or_source_folder,
@@ -161,6 +164,64 @@ def get_parameters_save_path(save_path, sample_id, ensemble_idx):
 
 
 
+def calc_branch(branch_id, config, model, intensity_aug_func, identity_grid, patch_size, batch_size,
+                label_mapping, optimized_labels, imgs, device):
+
+    assert branch_id in ['branch_a', 'branch_b']
+
+    grad_context = nullcontext if config['have_grad_in'] in ['branch_a', 'both'] else torch.no_grad
+
+    with grad_context():
+        zero_grid = 0. * identity_grid
+
+        imgs_aug = imgs
+
+        if config['do_intensity_aug_in'] in [branch_id, 'both']:
+            imgs_aug = intensity_aug_func(imgs_aug)
+        else:
+            imgs_aug = imgs_aug
+
+        grid = zero_grid
+        grid_inverse = zero_grid
+
+        if config['spatial_aug_type'] == 'affine' and config['do_spatial_aug_in'] in [branch_id, 'both']:
+            R, R_inverse = get_rand_affine(batch_size, flip=False)
+            R, R_inverse = R.to(device), R_inverse.to(device)
+            grid = grid + (F.affine_grid(R, [batch_size, 1] + patch_size, align_corners=False) - identity_grid)
+            grid_inverse = grid_inverse + (F.affine_grid(R_inverse, [batch_size, 1] + patch_size, align_corners=False) - identity_grid)
+
+        if config['spatial_aug_type'] == 'deformable' and config['do_spatial_aug_in'] in [branch_id, 'both']:
+            grid_deformable, grid_deformable_inverse = get_disp_field(batch_size, patch_size, factor=0.5, interpolation_factor=5, device=device)
+            grid = grid + grid_deformable
+            grid_inverse = grid_inverse + grid_deformable_inverse
+
+        if config['do_spatial_aug_in'] in [branch_id, 'both']:
+            grid = grid + identity_grid
+            imgs_aug = F.grid_sample(imgs_aug, grid, padding_mode='border', align_corners=False)
+
+        if branch_id == 'branch_a':
+            model.apply(buffer_running_stats)
+        elif branch_id == 'branch_b':
+            model.apply(apply_running_stats)
+        else:
+            raise ValueError()
+
+        branch_target = model(imgs_aug)
+        branch_target = map_label(branch_target, get_map_idxs(label_mapping, optimized_labels, input_type='pretrain_labels'), input_format='logits')
+
+        if isinstance(branch_target, tuple):
+            branch_target = branch_target[0]
+
+        if config['do_spatial_aug_in'] in [branch_id, 'both']:
+            grid_inverse = grid_inverse + identity_grid
+            branch_target = F.grid_sample(branch_target, grid_inverse, align_corners=False)
+        else:
+            branch_target = branch_target
+
+        return branch_target
+
+
+
 def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modifier_fn_module, device, debug=False):
     # Load model
     pretrained_weights_filepath = config['pretrained_weights_filepath']
@@ -257,100 +318,16 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
                     tqdm.write(f"Released #{sum(list(grad_params.values()))/1e6:.2f} million trainable params")
 
                 for _ in range(patches_to_be_accumulated):
-
                     with torch.no_grad():
                         imgs, labels = get_batch(
                             tta_tens_list, torch.randperm(len(tta_tens_list))[:B], patch_size,
                             fixed_patch_idx=None, device=device
                         )
-                    # TODO: split this into two function calls
-                    # Augment branch a
-                    grad_context_a = nullcontext if config['have_grad_in'] in ['branch_a', 'both'] else torch.no_grad
-                    with grad_context_a():
 
-                        imgs_aug_a = imgs
-
-                        if config['do_intensity_aug_in'] in ['branch_a', 'both']:
-                            imgs_aug_a = intensity_aug_func(imgs_aug_a)
-                        else:
-                            imgs_aug_a = imgs_aug_a
-
-                        grid_a = zero_grid
-                        grid_a_inverse = zero_grid
-
-                        if config['spatial_aug_type'] == 'affine' and config['do_spatial_aug_in'] in ['branch_a', 'both']:
-                            R_a, R_a_inverse = get_rand_affine(B, flip=False)
-                            R_a, R_a_inverse = R_a.to(device), R_a_inverse.to(device)
-                            grid_a = grid_a + (F.affine_grid(R_a, [B, 1] + patch_size, align_corners=False) - identity_grid)
-                            grid_a_inverse = grid_a_inverse + (F.affine_grid(R_a_inverse, [B, 1] + patch_size, align_corners=False) - identity_grid)
-
-                        if config['spatial_aug_type'] == 'deformable' and config['do_spatial_aug_in'] in ['branch_a', 'both']:
-                            grid_a_deformable, grid_a_deformable_inverse = get_disp_field(B, patch_size, factor=0.5, interpolation_factor=5, device=device)
-                            grid_a = grid_a + grid_a_deformable
-                            grid_a_inverse = grid_a_inverse + grid_a_deformable_inverse
-
-                        if config['do_spatial_aug_in'] in ['branch_a', 'both']:
-                            grid_a = grid_a + identity_grid
-                            imgs_aug_a = F.grid_sample(imgs_aug_a, grid_a, padding_mode='border', align_corners=False)
-
-                        model.apply(buffer_running_stats)
-                        target_a = model(imgs_aug_a)
-                        target_a = map_label(target_a, get_map_idxs(label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
-
-                        if isinstance(target_a, tuple):
-                            target_a = target_a[0]
-
-                        if config['do_spatial_aug_in'] in ['branch_a', 'both']:
-                            grid_a_inverse = grid_a_inverse + identity_grid
-                            target_a = F.grid_sample(target_a, grid_a_inverse, align_corners=False
-                                # , padding_mode='border' # no padding mode border here?
-                            )
-                        else:
-                            target_a = target_a
-
-                    # Augment branch b
-                    grad_context_b = nullcontext if config['have_grad_in'] in ['branch_b', 'both'] else torch.no_grad
-
-                    with grad_context_b():
-                        imgs_aug_b = imgs
-
-                        if config['do_intensity_aug_in'] in ['branch_b', 'both']:
-                            imgs_aug_b = intensity_aug_func(imgs_aug_b)
-                        else:
-                            imgs_aug_b = imgs_aug_b
-
-                        grid_b = zero_grid
-                        grid_b_inverse = zero_grid
-
-                        if config['spatial_aug_type'] == 'affine' and config['do_spatial_aug_in'] in ['branch_b', 'both']:
-                            R_b, R_b_inverse = get_rand_affine(B, flip=False)
-                            R_b, R_b_inverse = R_b.to(device), R_b_inverse.to(device)
-                            grid_b = grid_b + (F.affine_grid(R_b, [B, 1] + patch_size, align_corners=False) - identity_grid)
-                            grid_b_inverse = grid_b_inverse + (F.affine_grid(R_b_inverse, [B, 1] + patch_size, align_corners=False) - identity_grid)
-
-                        if config['spatial_aug_type'] == 'deformable' and config['do_spatial_aug_in'] in ['branch_b', 'both']:
-                            grid_b_deformable, grid_b_deformable_inverse = get_disp_field(B, patch_size, factor=0.5, interpolation_factor=5, device=device)
-                            grid_b = grid_b + grid_b_deformable
-                            grid_b_inverse = grid_b_inverse + grid_b_deformable_inverse
-
-                        if config['do_spatial_aug_in'] in ['branch_b', 'both']:
-                            grid_b = grid_b + identity_grid
-                            imgs_aug_b = F.grid_sample(imgs_aug_b, grid_b, padding_mode='border', align_corners=False)
-
-                        model.apply(apply_running_stats)
-                        target_b = model(imgs_aug_b)
-                        target_b = map_label(target_b, get_map_idxs(label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
-
-                        if isinstance(target_b, tuple):
-                            target_b = target_b[0]
-
-                        if config['do_spatial_aug_in'] in ['branch_b', 'both']:
-                            grid_b_inverse = grid_b_inverse + identity_grid
-                            target_b = F.grid_sample(target_b, grid_b_inverse, align_corners=False
-                                # , padding_mode='border' # no padding mode border here?
-                            )
-                        else:
-                            target_b = target_b
+                    target_a = calc_branch('branch_a', config, model, intensity_aug_func, identity_grid, patch_size, B,
+                                            label_mapping, optimized_labels, imgs, device)
+                    target_b = calc_branch('branch_b', config, model, intensity_aug_func, identity_grid, patch_size, B,
+                        label_mapping, optimized_labels, imgs, device)
 
                     # Apply consistency loss
                     common_content_mask = (target_a.sum(1, keepdim=True) > 0.).float() * (target_b.sum(1, keepdim=True) > 0.).float()
@@ -384,10 +361,10 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
                         if isinstance(output_eval, tuple):
                             output_eval = output_eval[0]
 
-                        output_eval = map_label(output_eval, get_map_idxs(label_mapping, optimized_labels, input_type='train_labels'), input_format='logits')
+                        output_eval = map_label(output_eval, get_map_idxs(label_mapping, optimized_labels, input_type='pretrain_labels'), input_format='logits')
                         target_argmax = output_eval.argmax(1)
 
-                        labels = map_label(labels, get_map_idxs(label_mapping, optimized_labels, input_type='test_labels'), input_format='argmaxed').long()
+                        labels = map_label(labels, get_map_idxs(label_mapping, optimized_labels, input_type='tta_labels'), input_format='argmaxed').long()
                         d_tgt_val = dice_coeff(
                             target_argmax, labels, len(optimized_labels)
                         )
@@ -454,7 +431,7 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
         predicted_output_array, data_properties = sitk_io.read_seg(prediction_save_path)
         predicted_output = map_label(
             torch.as_tensor(predicted_output_array),
-            get_map_idxs(label_mapping, optimized_labels, input_type='train_labels'),
+            get_map_idxs(label_mapping, optimized_labels, input_type='pretrain_labels'),
             input_format='argmaxed'
         ).squeeze(0)
 
@@ -483,12 +460,15 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
 
         seg, sitk_stuff = image_reader_writer.read_seg(path_mapped_target)
         seg = torch.as_tensor(seg)
-        mapped_seg = map_label(seg, get_map_idxs(label_mapping, optimized_labels, input_type='test_labels'), input_format='argmaxed').squeeze(0)
+        mapped_seg = map_label(seg, get_map_idxs(label_mapping, optimized_labels, input_type='tta_labels'), input_format='argmaxed').squeeze(0)
         image_reader_writer.write_seg(mapped_seg.squeeze(0).numpy(), path_mapped_target, sitk_stuff)
 
     for bucket in ['Ts', 'Tr']:
         all_mapped_targets_path = save_path / f'mapped_target_labels{bucket}'
         all_pred_targets_path = save_path / f'tta_output{bucket}'
+
+        if not all_mapped_targets_path.is_dir() or not all_pred_targets_path.is_dir():
+            continue
 
         # Run postprocessing
         postprocess_results_fn = modifier_fn_module.ModifierFunctions.postprocess_results_fn

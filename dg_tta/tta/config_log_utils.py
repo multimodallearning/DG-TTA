@@ -188,6 +188,7 @@ def prepare_tta(pretrained_dataset_id, tta_dataset_id,
     # Retrive possible labels to be optimized (may require manual tweaking later)
     intersection_classes = list(set(pretrained_classes.keys()).intersection(set(tta_dataset_classes)))
     assert 'background' in intersection_classes, 'Background class must be present in both datasets!'
+    intersection_classes.sort()
     intersection_classes.remove('background')
     intersection_classes.insert(0, 'background')
     initial_plan['optimized_labels'] = intersection_classes

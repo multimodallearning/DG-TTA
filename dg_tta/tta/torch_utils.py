@@ -238,7 +238,7 @@ def generate_label_mapping(source_label_dict, target_label_dict):
 
 
 def get_map_idxs(label_mapping: dict, optimized_labels: list, input_type):
-    assert input_type in ['train_labels', 'test_labels']
+    assert input_type in ['pretrain_labels', 'tta_labels']
     assert optimized_labels[0] == 'background'
 
     # Generate idxs from label_mapping dict
@@ -246,7 +246,7 @@ def get_map_idxs(label_mapping: dict, optimized_labels: list, input_type):
     for reduced_idx, eval_label in enumerate(optimized_labels):
         src_idx, target_idx = label_mapping[eval_label]
         # map_idxs_list = [tts_dict[k] for k,v in amos_bcv_dict.items()]
-        append_idx = src_idx if input_type == 'train_labels' else target_idx
+        append_idx = src_idx if input_type == 'pretrain_labels' else target_idx
         map_idxs_list.append(append_idx)
 
     map_idxs = torch.as_tensor(map_idxs_list)
