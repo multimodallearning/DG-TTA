@@ -57,24 +57,22 @@ def get_batch(tensor_list, batch_idx, patch_size, fixed_patch_idx=None, device='
                 rand_patch_w : rand_patch_w + patch_size[2],
             ]
 
-            extracted_patch = F.grid_sample(
-                data.unsqueeze(0).to(device), patch_grid, align_corners=False
+            b_img[b] = F.grid_sample(
+                data[0:1].unsqueeze(0).to(device), patch_grid, align_corners=False
             )
 
-            b_img[b], b_label[b] = get_imgs_segs_stack(extracted_patch)[0]
+            b_label[b] = get_argmaxed_segs(F.grid_sample(
+                data[1:].unsqueeze(0).to(device), patch_grid, align_corners=False, mode='nearest'
+            ))
 
     return b_img, b_label
 
 
 
-def get_imgs_segs_stack(tta_sample):
-    imgs = tta_sample[:,0:1]
-    segs = tta_sample[:,1:]
-
+def get_argmaxed_segs(segs):
     segs_oh_w_bg = torch.cat([(segs.sum(1, keepdim=True)<1.).float(), segs], dim=1)
     segs_argmaxed = segs_oh_w_bg.argmax(1, keepdim=True)
-
-    return torch.cat([imgs, segs_argmaxed], dim=1)
+    return segs_argmaxed
 
 
 
