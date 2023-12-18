@@ -8,8 +8,7 @@ from dg_tta.mind import MIND3D
 from dg_tta.utils import disable_internal_augmentation, enable_internal_augmentation
 from dg_tta.gin import gin_aug
 
-def get_rf_field(num_batch, size_3d, interpolation_factor=4, num_fields=4, alternating_fields=True, device='device'):
-    # TODO refactor
+def get_rf_field(num_batch, size_3d, interpolation_factor=4, num_fields=4, device='cpu'):
     rf_field = F.interpolate(
         F.avg_pool3d(
             F.avg_pool3d(
@@ -38,9 +37,6 @@ def get_rf_field(num_batch, size_3d, interpolation_factor=4, num_fields=4, alter
     rf_field /= 1e-3 + rf_field.view(num_batch * num_fields, -1).std(1).view(
         num_batch, num_fields, 1, 1, 1
     )
-    if alternating_fields:
-        rf_field *= 2.5
-        rf_field[:, ::2] += 1
 
     return rf_field
 
@@ -94,7 +90,6 @@ def calc_consistent_diffeomorphic_field(disp_field, inverse_disp_field, time_ste
 
 
 def get_disp_field(batch_num, size_3d, factor=0.1, interpolation_factor=5, device='cpu'):
-    # TODO refactor
     field = get_rf_field(batch_num,size_3d, alternating_fields=False, num_fields=3, interpolation_factor=interpolation_factor, device=device)
     STEPS = 5
     disp_field, inverse_disp_field = calc_consistent_diffeomorphic_field(
@@ -108,7 +103,6 @@ def get_disp_field(batch_num, size_3d, factor=0.1, interpolation_factor=5, devic
 
 
 def get_rand_affine(batch_size, strength=0.05, flip=False):
-    # TODO refactor
     affine = torch.cat(
         (
             torch.randn(batch_size, 3, 4) * strength + torch.eye(3, 4).unsqueeze(0),

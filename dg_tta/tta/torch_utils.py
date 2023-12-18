@@ -87,10 +87,9 @@ def get_imgs(tta_sample):
 def soft_dice_loss(smp_a, smp_b):
     B,_,D,H,W = smp_a.shape
     d=2
-    # TODO Add d parameter
 
-    nominator = (4.*smp_a*smp_b).reshape(B,-1,D*H*W).mean(2)
-    denominator = ((smp_a + smp_b)**d).reshape(B,-1,D*H*W).mean(2)
+    nominator = (2.*smp_a*smp_b).reshape(B,-1,D*H*W).mean(2)
+    denominator = 1/d*((smp_a + smp_b)**d).reshape(B,-1,D*H*W).mean(2)
 
     if denominator.sum() == 0.:
         dice = (nominator * 0.) + 1.

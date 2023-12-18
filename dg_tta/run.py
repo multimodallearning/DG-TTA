@@ -83,14 +83,13 @@ def load_tta_data(config, task_raw_path, predictor):
 
 
 
-def load_network(weights_file):
+def load_network(weights_file, device):
     pretrained_weights_filepathpath = Path(*Path(weights_file).parts[:-2])
     fold = Path(weights_file).parts[-2].replace('fold_', '')
     use_folds = [int(fold)] if fold.isnumeric() else fold
     checkpoint_name = "checkpoint_final.pth"
     configuration = Path(weights_file).parts[-3].split('__')[-1]
 
-    device = torch.device("cuda") # TODO make this configurable
     perform_everything_on_gpu = True
     verbose = False
 
@@ -117,23 +116,6 @@ def run_inference(config, tta_data, model, predictor, all_tta_parameter_paths):
     predictor.network = deepcopy(model)
     predictor.list_of_parameters = tta_parameters
     predictor.predict_from_data_iterator(tta_data, save_probabilities, num_processes_segmentation_export)
-
-
-
-def prepare_mind_layers(model):
-    # TODO rename this function
-    # Prepare MIND model
-    first_layer = get_module_data(model, 'encoder.stages.0.0.convs.0.conv')
-    new_first_layer = torch.nn.Conv3d(12, 32, kernel_size=(3,3,3), stride=(1,1,1), padding=(1,1,1))
-
-    with torch.no_grad():
-        new_first_layer.weight.copy_(first_layer.weight)
-        new_first_layer.bias.copy_(first_layer.bias)
-
-    set_module_data(model, 'encoder.stages.0.0.convs.0.conv', new_first_layer)
-    set_module_data(model, 'encoder.stages.0.0.convs.0.all_modules.0', new_first_layer)
-
-    return model
 
 
 
@@ -182,7 +164,7 @@ def get_parameters_save_path(save_path, sample_id, ensemble_idx):
 def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modifier_fn_module, device, debug=False):
     # Load model
     pretrained_weights_filepath = config['pretrained_weights_filepath']
-    predictor, patch_size, network, parameters = load_network(pretrained_weights_filepath)
+    predictor, patch_size, network, parameters = load_network(pretrained_weights_filepath, device)
 
     # Load TTA data
     tta_data = load_tta_data(config, tta_data_dir, predictor)
@@ -215,7 +197,7 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
     else:
         sample_range = trange(num_samples, desc='sample')
 
-    disable_internal_augmentation() # TODO find a better way do enable-disable internal trainer augmentation
+    disable_internal_augmentation()
 
     for smp_idx in sample_range:
         if tta_across_all_samples:
@@ -488,7 +470,6 @@ def tta_main(run_name, config, tta_data_dir, save_base_path, label_mapping, modi
     for pred_path in all_prediction_save_paths:
         pred_label_name = Path(pred_path).name
         if 'outputTs' in Path(pred_path).parent.parts[-1]:
-            # TODO make this condition code leaner
             path_mapped_target = save_path / 'mapped_target_labelsTs' / pred_label_name
             path_orig_target = tta_data_dir / 'labelsTs' / pred_label_name
         elif 'outputTr' in Path(pred_path).parent.parts[-1]:

@@ -1,11 +1,9 @@
 # DG-TTA
 
-# TODOs
-* Add pypi package
-* Add documentation
-* Test approach freshly installed
-* Add data preparation notebook
-* Remove fix package dependencies
-* Add epochs for nnUNet trainer
-* Add TTA files to be processed
-* Check what happens if seg is missing
+* TODO Add pypi package
+* TODO Add documentation
+* TODO Test approach freshly installed
+* TODO Add data preparation notebook
+* TODO Remove fix package dependencies
+* TODO Add epochs for nnUNet trainer
+* TODO Check what happens if seg is missing
