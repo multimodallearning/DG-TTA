@@ -7,3 +7,4 @@
 * TODO Remove fix package dependencies
 * TODO Add epochs for nnUNet trainer
 * TODO Check what happens if seg is missing
+* TODO Test prediction across all samples

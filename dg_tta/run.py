@@ -44,20 +44,20 @@ INTENSITY_AUG_FUNCTION_DICT = {
 
 
 
-def get_data_iterator(config, predictor, tta_data_filepaths, task_raw_path, tta_task_data_bucket):
-    assert tta_task_data_bucket in ['imagesTs', 'imagesTr']
+def get_data_iterator(config, predictor, tta_data_filepaths, dataset_raw_path, tta_dataset_bucket):
+    assert tta_dataset_bucket in ['imagesTs', 'imagesTr']
 
     list_of_lists = [[_path] for _path in tta_data_filepaths \
-                    if Path(_path).parts[-2] == tta_task_data_bucket]
+                    if Path(_path).parts[-2] == tta_dataset_bucket]
 
-    label_folder = 'labelsTs' if tta_task_data_bucket == 'imagesTs' else 'labelsTr'
-    output_folder = 'tta_outputTs' if tta_task_data_bucket == 'imagesTs' else 'tta_outputTr'
+    label_folder = 'labelsTs' if tta_dataset_bucket == 'imagesTs' else 'labelsTr'
+    output_folder = 'tta_outputTs' if tta_dataset_bucket == 'imagesTs' else 'tta_outputTr'
 
     (
         list_of_lists_or_source_folder,
         output_filename_truncated,
         seg_from_prev_stage_files,
-    ) = predictor._manage_input_and_output_lists(list_of_lists, output_folder, task_raw_path / label_folder)
+    ) = predictor._manage_input_and_output_lists(list_of_lists, output_folder, dataset_raw_path / label_folder)
 
     nnUNetPredictor._internal_get_data_iterator_from_lists_of_filenames
     data_iterator = predictor._internal_get_data_iterator_from_lists_of_filenames(
@@ -70,12 +70,12 @@ def get_data_iterator(config, predictor, tta_data_filepaths, task_raw_path, tta_
 
 
 
-def load_tta_data(config, task_raw_path, predictor):
+def load_tta_data(config, dataset_raw_path, predictor):
     with suppress_stdout():
         ts_iterator = get_data_iterator(config, predictor, config['tta_data_filepaths'],
-                        task_raw_path, 'imagesTs')
+                        dataset_raw_path, 'imagesTs')
         tr_iterator = get_data_iterator(config, predictor, config['tta_data_filepaths'],
-                        task_raw_path, 'imagesTr')
+                        dataset_raw_path, 'imagesTr')
 
     data = list(ts_iterator) + list(tr_iterator)
 
@@ -544,46 +544,45 @@ class DGTTAProgram():
     def prepare_tta(self):
         parser = argparse.ArgumentParser(description='Prepare DG-TTA',
                                          usage='''dgtta prepare_tta [-h]''')
-        # TODO change term task to dataset
-        parser.add_argument('pretrained_task_id', help='''
+
+        parser.add_argument('pretrained_dataset_id', help='''
                             Task ID for pretrained model.
                             Can be numeric or one of ['TS104_GIN', 'TS104_MIND', 'TS104_GIN_MIND']''')
-        parser.add_argument('tta_task_id', help='Task ID for TTA')
+        parser.add_argument('tta_dataset_id', help='Task ID for TTA')
         parser.add_argument('--pretrainer', help='Trainer to use for pretraining', default='nnUNetTrainer_GIN_MIND')
         parser.add_argument('--pretrainer_config', help='Fold ID of nnUNet model to use for pretraining', default='3d_fullres')
         parser.add_argument('--pretrainer_fold', help='Fold ID of nnUNet model to use for pretraining', default='0')
-        parser.add_argument('--tta_task_data_bucket', help='''Can be one of ['imagesTr', 'imagesTs', 'imagesTrAndTs']''', default='imagesTs')
-
+        parser.add_argument('--tta_dataset_bucket', help='''Can be one of ['imagesTr', 'imagesTs', 'imagesTrAndTs']''', default='imagesTs')
 
         args = parser.parse_args(sys.argv[2:])
-        pretrained_task_id = int(args.pretrained_task_id) \
-            if args.pretrained_task_id.isnumeric() else args.pretrained_task_id
+        pretrained_dataset_id = int(args.pretrained_dataset_id) \
+            if args.pretrained_dataset_id.isnumeric() else args.pretrained_dataset_id
         pretrainer_fold = int(args.pretrainer_fold) \
             if args.pretrainer_fold.isnumeric() else args.pretrainer_fold
 
-        dg_tta.tta.config_log_utils.prepare_tta(pretrained_task_id, int(args.tta_task_id),
+        dg_tta.tta.config_log_utils.prepare_tta(pretrained_dataset_id, int(args.tta_dataset_id),
                                                 pretrainer=args.pretrainer,
                                                 pretrainer_config=args.pretrainer_config,
                                                 pretrainer_fold=pretrainer_fold,
-                                                tta_task_data_bucket=args.tta_task_data_bucket)
+                                                tta_dataset_bucket=args.tta_dataset_bucket)
 
     def run_tta(self):
         parser = argparse.ArgumentParser(description='Run DG-TTA')
-        parser.add_argument('pretrained_task_id', help='''
+        parser.add_argument('pretrained_dataset_id', help='''
                             Task ID for pretrained model.
                             Can be numeric or one of ['TS104_GIN', 'TS104_MIND', 'TS104_GIN_MIND']''')
-        parser.add_argument('tta_task_id', help='Task ID for TTA')
+        parser.add_argument('tta_dataset_id', help='Task ID for TTA')
         parser.add_argument('--pretrainer', help='Trainer to use for pretraining', default='nnUNetTrainer_GIN_MIND')
         parser.add_argument('--pretrainer_config', help='Fold ID of nnUNet model to use for pretraining', default='3d_fullres')
         parser.add_argument('--pretrainer_fold', help='Fold ID of nnUNet model to use for pretraining', default='0')
         parser.add_argument('--device', help='Device to be used', default='cuda')
 
         args = parser.parse_args(sys.argv[2:])
-        pretrained_task_id = int(args.pretrained_task_id) \
-            if args.pretrained_task_id.isnumeric() else args.pretrained_task_id
+        pretrained_dataset_id = int(args.pretrained_dataset_id) \
+            if args.pretrained_dataset_id.isnumeric() else args.pretrained_dataset_id
 
-        tta_data_dir, plan_dir, results_dir, pretrained_task_name, tta_task_name = \
-            get_tta_folders(pretrained_task_id, int(args.tta_task_id), \
+        tta_data_dir, plan_dir, results_dir, pretrained_dataset_name, tta_dataset_name = \
+            get_tta_folders(pretrained_dataset_id, int(args.tta_dataset_id), \
                             args.pretrainer, args.pretrainer_config, args.pretrainer_fold)
 
         now_str = datetime.now().strftime("%Y%m%d__%H_%M_%S")
@@ -598,13 +597,13 @@ class DGTTAProgram():
         with open(Path(plan_dir / 'tta_plan.json'), 'r') as f:
             config = json.load(f)
 
-        with open(Path(plan_dir) / f"{pretrained_task_name}_label_mapping.json", 'r') as f:
+        with open(Path(plan_dir) / f"{pretrained_dataset_name}_label_mapping.json", 'r') as f:
             pretrained_label_mapping = json.load(f)
 
-        with open(Path(plan_dir) / f"{tta_task_name}_label_mapping.json", 'r') as f:
-            tta_task_label_mapping = json.load(f)
+        with open(Path(plan_dir) / f"{tta_dataset_name}_label_mapping.json", 'r') as f:
+            tta_dataset_label_mapping = json.load(f)
 
-        label_mapping = generate_label_mapping(pretrained_label_mapping, tta_task_label_mapping)
+        label_mapping = generate_label_mapping(pretrained_label_mapping, tta_dataset_label_mapping)
         modifier_fn_module = load_current_modifier_functions(plan_dir)
         device = torch.device(args.device)
 
