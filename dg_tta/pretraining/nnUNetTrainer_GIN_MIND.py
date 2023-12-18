@@ -10,6 +10,7 @@ from nnunetv2.utilities.get_network_from_plans import get_network_from_plans
 
 from dg_tta.gin import gin_hook
 from dg_tta.mind import mind_hook
+from dg_tta.utils import enable_internal_augmentation
 
 
 class nnUNetTrainer_GIN_MIND(nnUNetTrainer):
@@ -43,6 +44,7 @@ class nnUNetTrainer_GIN_MIND(nnUNetTrainer):
             deep_supervision=enable_deep_supervision,
         )
 
+        enable_internal_augmentation()
         gin_hook_handle = network.register_forward_pre_hook(gin_hook)
         mind_hook_handle = network.register_forward_pre_hook(mind_hook)
 
