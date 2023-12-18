@@ -39,8 +39,6 @@ from dg_tta.tta.torch_utils import (
     fix_all,
     release_all,
     release_norms,
-    get_module_data,
-    set_module_data,
     register_forward_pre_hook_at_beginning,
     register_forward_hook_at_beginning,
     hookify,
@@ -56,6 +54,7 @@ from dg_tta.tta.config_log_utils import (
     get_tta_folders,
     wandb_is_available,
     suppress_stdout,
+    plot_run_results
 )
 
 
@@ -398,7 +397,7 @@ def tta_main(
                 )
                 continue
 
-            train_losses = torch.zeros(num_epochs)
+            tta_losses = torch.zeros(num_epochs)
             eval_dices = torch.zeros(num_epochs)
 
             intensity_aug_func = INTENSITY_AUG_FUNCTION_DICT[
@@ -502,7 +501,7 @@ def tta_main(
                     optimizer.step()
                     optimizer.zero_grad()
 
-                train_losses[epoch] = torch.stack(step_losses).mean().item()
+                tta_losses[epoch] = torch.stack(step_losses).mean().item()
 
                 with torch.inference_mode():
                     model.eval()
@@ -549,12 +548,12 @@ def tta_main(
                         break
 
                 tbar.set_description(
-                    f"epoch, loss = {train_losses[epoch]:.3f}, dice = {eval_dices[epoch]:.2f}"
+                    f"epoch, loss = {tta_losses[epoch]:.3f}, dice = {eval_dices[epoch]:.2f}"
                 )
                 if wandb_is_available():
                     wandb.log(
                         {
-                            f"losses/loss__{sample_id}__ensemble_idx_{ensemble_idx}": train_losses[
+                            f"losses/loss__{sample_id}__ensemble_idx_{ensemble_idx}": tta_losses[
                                 epoch
                             ]
                         },
@@ -569,29 +568,9 @@ def tta_main(
                         step=global_idx,
                     )
 
-            # Print graphic per ensemble
-            # TODO: Externalises / improve the plotting
-            plt.close()
-            plt.cla()
-            plt.clf()
-            fig, ax1 = plt.subplots(figsize=(2.0, 2.0))
-            # ax2 = ax1.twinx()
-            ax1.set_ylim(0.0, 1.0)
-
-            ax1.plot(train_losses, label="loss")
-            # ax2.plot(alt_train_losses, label='alt_loss', color='red')
-            ax1.plot(eval_dices, label="eval_dices")
-            ax1.legend()
-            # ax2.legend()
-            plt.tight_layout()
+            plot_run_results(save_path, sample_id, ensemble_idx, tta_losses, eval_dices)
 
             tta_parameters = [model.state_dict()]
-            tta_plot_save_path = (
-                save_path / f"{sample_id}__ensemble_idx_{ensemble_idx}_tta_results.png"
-            )
-            plt.savefig(tta_plot_save_path)
-            plt.close()
-
             torch.save(tta_parameters, tta_parameters_save_path)
 
             if debug:

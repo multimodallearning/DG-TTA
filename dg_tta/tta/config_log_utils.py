@@ -9,6 +9,7 @@ import inspect
 import json
 from contextlib import contextmanager
 
+from matplotlib import pyplot as plt
 if importlib.util.find_spec("wandb"):
     import wandb
 import torch
@@ -340,3 +341,27 @@ def suppress_stdout():
             yield
         finally:
             sys.stdout = old_stdout
+
+
+
+def plot_run_results(save_path, sample_id, ensemble_idx, tta_losses, eval_dices):
+    # Print graphic per ensemble
+    # TODO: Externalises / improve the plotting
+    plt.close()
+    plt.cla()
+    plt.clf()
+    fig, ax1 = plt.subplots(figsize=(2.0, 2.0))
+    # ax2 = ax1.twinx()
+    ax1.set_ylim(0.0, 1.0)
+
+    ax1.plot(tta_losses, label="loss")
+    ax1.plot(eval_dices, label="eval_dices")
+    ax1.legend()
+    # ax2.legend()
+    plt.tight_layout()
+
+    tta_plot_save_path = (
+        save_path / f"{sample_id}__ensemble_idx_{ensemble_idx}_tta_results.png"
+    )
+    plt.savefig(tta_plot_save_path)
+    plt.close()
