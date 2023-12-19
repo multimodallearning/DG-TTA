@@ -9,7 +9,9 @@ import inspect
 import json
 from contextlib import contextmanager
 
+import matplotlib
 from matplotlib import pyplot as plt
+
 if importlib.util.find_spec("wandb"):
     import wandb
 import torch
@@ -343,25 +345,39 @@ def suppress_stdout():
             sys.stdout = old_stdout
 
 
+def get_dgtta_colormap():
+    hi_1 = "#248888"
+    hi_2 = "#79DCF0"
+    hi_3 = "#e7475e"
+    hi_4 = "#f0d879"
+    return matplotlib.colors.LinearSegmentedColormap.from_list(
+        "", [hi_3, hi_4, hi_2, hi_1]
+    )
+
 
 def plot_run_results(save_path, sample_id, ensemble_idx, tta_losses, eval_dices):
-    # Print graphic per ensemble
-    # TODO: Externalises / improve the plotting
-    plt.close()
-    plt.cla()
-    plt.clf()
-    fig, ax1 = plt.subplots(figsize=(2.0, 2.0))
-    # ax2 = ax1.twinx()
-    ax1.set_ylim(0.0, 1.0)
+    fig, ax_one = plt.subplots()
+    ax_two = ax_one.twinx()
+    cmap = get_dgtta_colormap()
+    c1,c2 = cmap(0.0), cmap(.8)
+    ax_one.plot(tta_losses, label="loss", c=c1)
+    ax_one.set_yticks([tta_losses.min(), tta_losses.max()])
+    ax_one.set_xlim(0, len(tta_losses)-1)
+    ax_one.set_ylabel("Soft-Dice Loss", c=c1)
+    ax_one.tick_params(axis='y', colors=c1)
+    ax_one.set_xlabel("TTA Epoch")
+    ax_one.grid(axis='y', linestyle='--', linewidth=0.5)
+    ax_one.yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter("%.3f"))
 
-    ax1.plot(tta_losses, label="loss")
-    ax1.plot(eval_dices, label="eval_dices")
-    ax1.legend()
-    # ax2.legend()
-    plt.tight_layout()
-
+    ax_two.plot(eval_dices * 100, label="eval_dices", c=c2)
+    ax_two.set_yticks([eval_dices.min() * 100, eval_dices.max() * 100])
+    ax_two.set_ylabel("Pseudo Dice in %", c=c2)
+    ax_two.tick_params(axis='y', colors=c2)
+    ax_two.yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter("%.1f"))
+    fig.suptitle(f"{sample_id} (ensemble_idx={ensemble_idx})")
     tta_plot_save_path = (
         save_path / f"{sample_id}__ensemble_idx_{ensemble_idx}_tta_results.png"
     )
-    plt.savefig(tta_plot_save_path)
-    plt.close()
+    fig.savefig(tta_plot_save_path)
+    fig.tight_layout()
+    plt.close(fig)

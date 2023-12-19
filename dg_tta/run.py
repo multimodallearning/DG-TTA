@@ -369,7 +369,7 @@ def tta_main(
     if tta_across_all_samples:
         sample_range = [0]
     else:
-        sample_range = trange(num_samples, desc="sample")
+        sample_range = trange(num_samples, desc="Samples")
 
     disable_internal_augmentation()
 
@@ -385,15 +385,13 @@ def tta_main(
 
         sub_dir_tta.mkdir(exist_ok=True)
 
-        ensemble_parameter_paths = []
-
-        for ensemble_idx in trange(ensemble_count, desc="ensemble"):
+        for ensemble_idx in trange(ensemble_count, desc="Ensembles"):
             tta_parameters_save_path = get_parameters_save_path(
                 save_path, sample_id, ensemble_idx
             )
             if tta_parameters_save_path.is_file():
                 tqdm.write(
-                    f"TTA parameters file already exists: {tta_parameters_save_path}"
+                    f"TTA parameters file already exists. Skipping '{tta_parameters_save_path}'"
                 )
                 continue
 
@@ -409,7 +407,7 @@ def tta_main(
 
             optimizer = torch.optim.AdamW(model.parameters(), lr=config["lr"])
 
-            tbar = trange(num_epochs, desc="epoch")
+            tbar = trange(num_epochs, desc="Epoch")
             START_CLASS = 1
 
             model.apply(fix_all)
@@ -548,7 +546,7 @@ def tta_main(
                         break
 
                 tbar.set_description(
-                    f"epoch, loss = {tta_losses[epoch]:.3f}, dice = {eval_dices[epoch]:.2f}"
+                    f"Epochs, loss={tta_losses[epoch]:.3f}, Pseudo-Dice={eval_dices[epoch]*100:.1f}"
                 )
                 if wandb_is_available():
                     wandb.log(
@@ -573,6 +571,7 @@ def tta_main(
             tta_parameters = [model.state_dict()]
             torch.save(tta_parameters, tta_parameters_save_path)
 
+
             if debug:
                 break
         # End of ensemble loop
@@ -580,7 +579,7 @@ def tta_main(
     print("Starting prediction")
     all_prediction_save_paths = []
 
-    for smp_idx in trange(num_samples, desc="sample"):
+    for smp_idx in trange(num_samples, desc="Samples"):
         ensemble_parameter_paths = []
         tta_sample = tta_data[smp_idx]
         tta_sample["data"] = get_imgs(tta_sample["data"].unsqueeze(0)).squeeze(0)
