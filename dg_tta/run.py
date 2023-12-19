@@ -124,10 +124,10 @@ def load_tta_data(config, dataset_raw_path, predictor):
 
 
 def load_network(weights_file, device):
-    pretrained_weights_filepathpath = Path(*Path(weights_file).parts[:-2])
+    pretrained_weights_filepath = Path(*Path(weights_file).parts[:-2])
     fold = Path(weights_file).parts[-2].replace("fold_", "")
     use_folds = [int(fold)] if fold.isnumeric() else fold
-    checkpoint_name = "checkpoint_final.pth"
+    checkpoint_name = Path(weights_file).parts[-1]
     configuration = Path(weights_file).parts[-3].split("__")[-1]
 
     perform_everything_on_gpu = True
@@ -138,8 +138,9 @@ def load_network(weights_file, device):
         device=device,
         verbose_preprocessing=verbose,
     )
+
     predictor.initialize_from_trained_model_folder(
-        pretrained_weights_filepathpath, use_folds, checkpoint_name
+        pretrained_weights_filepath, use_folds, checkpoint_name
     )
 
     parameters = predictor.list_of_parameters
@@ -461,7 +462,7 @@ def tta_main(
                             device=device,
                         )
 
-                    imgs = torch.cat(imgs,dim=0)
+                    imgs = torch.cat(imgs, dim=0)
 
                     target_a = calc_branch(
                         "branch_a",
@@ -524,18 +525,20 @@ def tta_main(
                             device=device,
                         )
 
-                        imgs = torch.cat(imgs,dim=0)
+                        imgs = torch.cat(imgs, dim=0)
 
                         none_labels = [l is None for l in labels]
                         filtered_imgs = imgs[~torch.as_tensor(none_labels)]
-                        filtered_labels = [l for flag, l in zip(none_labels, labels) if not flag]
+                        filtered_labels = [
+                            l for flag, l in zip(none_labels, labels) if not flag
+                        ]
 
                         if len(filtered_imgs) == 0:
-                            eval_dices[epoch] = float('nan')
+                            eval_dices[epoch] = float("nan")
                             continue
 
                         else:
-                            filtered_labels = torch.cat(filtered_labels,dim=0)
+                            filtered_labels = torch.cat(filtered_labels, dim=0)
                             output_eval = model(filtered_imgs)
                             if isinstance(output_eval, tuple):
                                 output_eval = output_eval[0]
@@ -554,7 +557,9 @@ def tta_main(
                             filtered_labels = map_label(
                                 filtered_labels,
                                 get_map_idxs(
-                                    label_mapping, optimized_labels, input_type="tta_labels"
+                                    label_mapping,
+                                    optimized_labels,
+                                    input_type="tta_labels",
                                 ),
                                 input_format="argmaxed",
                             ).long()
@@ -764,7 +769,7 @@ class DGTTAProgram:
         parser.add_argument(
             "--pretrainer",
             help="Trainer to use for pretraining",
-            default="nnUNetTrainer_GIN_MIND",
+            default=None,
         )
         parser.add_argument(
             "--pretrainer_config",
@@ -815,7 +820,7 @@ class DGTTAProgram:
         parser.add_argument(
             "--pretrainer",
             help="Trainer to use for pretraining",
-            default="nnUNetTrainer_GIN_MIND",
+            default=None,
         )
         parser.add_argument(
             "--pretrainer_config",

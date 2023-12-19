@@ -93,6 +93,10 @@ def get_tta_folders(
 ):
     root_dir = Path(os.environ["DG_TTA_ROOT"])
 
+    pretrainer, pretrainer_config, pretrainer_fold = check_dataset_pretrain_config(
+        pretrained_dataset_id
+    )
+
     # Get dataset names
     tta_dataset_name = maybe_convert_to_dataset_name(tta_dataset_id)
 
@@ -121,15 +125,7 @@ def get_tta_folders(
     )
 
 
-def prepare_tta(
-    pretrained_dataset_id,
-    tta_dataset_id,
-    pretrainer=None,
-    pretrainer_config=None,
-    pretrainer_fold=None,
-    tta_dataset_bucket="imagesTs",
-):
-    assert pretrained_dataset_id != tta_dataset_id
+def check_dataset_pretrain_config(pretrained_dataset_id):
     assert pretrained_dataset_id in [
         "TS104_GIN",
         "TS104_MIND",
@@ -160,6 +156,17 @@ def prepare_tta(
         else:
             raise ValueError()
 
+    return pretrainer, pretrainer_config, pretrainer_fold
+
+
+def prepare_tta(
+    pretrained_dataset_id,
+    tta_dataset_id,
+    pretrainer=None,
+    pretrainer_config=None,
+    pretrainer_fold=None,
+    tta_dataset_bucket="imagesTs",
+):
     root_dir = Path(os.environ["DG_TTA_ROOT"])
     assert root_dir.is_dir()
 
@@ -183,10 +190,11 @@ def prepare_tta(
     results_dir.mkdir(exist_ok=True, parents=True)
 
     if isinstance(pretrained_dataset_id, str):
-        weights_file_path = download_pretrained_weights(pretrained_dataset_id)
-        pretrained_classes = torch.load(weights_file_path, map_location="cpu")[
-            "classes"
-        ]
+        target_path, weights_file_path = download_pretrained_weights(
+            pretrained_dataset_id
+        )
+        with open(target_path / "dataset.json", "r") as f:
+            pretrained_classes = json.load(f)["labels"]
 
     else:
         # Get label mappings from nnUNet task
@@ -266,28 +274,36 @@ def prepare_tta(
 
 def download_pretrained_weights(pretrained_dataset_id):
     pretrained_weights_dir = Path(os.environ["DG_TTA_ROOT"]) / "_pretrained_weights"
+    resources_dir = Path(dg_tta.__file__).parent / "__resources__"
 
     if pretrained_dataset_id == "TS104_GIN":
-        dl_link = "https://cloud.imi.uni-luebeck.de/s/jE9sSR9d8ycd3WL/download"
-        target_path = pretrained_weights_dir / "weights_DG_TTA_TS104_GIN.pt"
+        pretrainer_dir = "nnUNetTrainer_GIN__nnUNetPlans__3d_fullres"
+        dl_link = "https://cloud.imi.uni-luebeck.de/s/ERK6Wic3D95qDKz/download"
 
     elif pretrained_dataset_id == "TS104_MIND":
-        dl_link = "https://cloud.imi.uni-luebeck.de/s/p742eMfA6FZzJ2p/download"
-        target_path = pretrained_weights_dir / "weights_DG_TTA_TS104_MIND.pt"
+        pretrainer_dir = "nnUNetTrainer_MIND__nnUNetPlans__3d_fullres"
+        dl_link = "https://cloud.imi.uni-luebeck.de/s/LZByo9m3A5c6Dki/download"
 
     elif pretrained_dataset_id == "TS104_GIN_MIND":
-        dl_link = "https://cloud.imi.uni-luebeck.de/s/54PZxGe58KSSyke/download"
-        target_path = pretrained_weights_dir / "weights_DG_TTA_TS104_GIN_MIND.pt"
+        pretrainer_dir = "nnUNetTrainer_GIN_MIND__nnUNetPlans__3d_fullres"
+        dl_link = "https://cloud.imi.uni-luebeck.de/s/dkGdfFGwbnzWya4/download"
 
     else:
         raise ValueError()
 
+    dummy_results_path = resources_dir / "dummy_results" / pretrainer_dir
+    target_path = pretrained_weights_dir / pretrainer_dir
+    target_path_weights = target_path / "fold_0" / "checkpoint_final.pth"
+
     target_path.parent.mkdir(exist_ok=True)
 
-    if not target_path.exists():
-        subprocess.run(["wget", dl_link, "-O", target_path])
+    # Copy dummy pretraining results (folder structure and nnUNet fils)
+    shutil.copytree(dummy_results_path, target_path, dirs_exist_ok=True)
 
-    return target_path
+    if not target_path_weights.exists():
+        subprocess.run(["wget", dl_link, "-O", target_path_weights])
+
+    return target_path, target_path_weights
 
 
 def get_global_idx(list_of_tuple_idx_max):
@@ -392,7 +408,8 @@ def plot_run_results(save_path, sample_id, ensemble_idx, tta_losses, eval_dices)
 
 def copy_check_tta_input_notebook(plan_dir):
     NB_FILENAME = "check_tta_input.ipynb"
+    resources_dir = Path(dg_tta.__file__).parent / "__resources__"
     shutil.copyfile(
-        Path(dg_tta.__file__).parent / "__resources__" / NB_FILENAME,
+        resources_dir / NB_FILENAME,
         plan_dir / NB_FILENAME,
     )
