@@ -23,10 +23,10 @@ class nnUNetTrainer_GIN_MIND(nnUNetTrainer):
         unpack_dataset: bool = True,
         device: torch.device = torch.device("cuda"),
     ):
-        """MINDSSC nnUNet"""
         super().__init__(
             plans, configuration, fold, dataset_json, unpack_dataset, device
         )
+        self.num_epochs = 1000
 
     def build_network_architecture(
         plans_manager: PlansManager,

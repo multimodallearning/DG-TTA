@@ -54,7 +54,7 @@ from dg_tta.tta.config_log_utils import (
     get_tta_folders,
     wandb_is_available,
     suppress_stdout,
-    plot_run_results
+    plot_run_results,
 )
 
 
@@ -566,11 +566,13 @@ def tta_main(
                         step=global_idx,
                     )
 
-            plot_run_results(save_path, sample_id, ensemble_idx, tta_losses, eval_dices)
-
             tta_parameters = [model.state_dict()]
             torch.save(tta_parameters, tta_parameters_save_path)
 
+            if not wandb_is_available():
+                plot_run_results(
+                    save_path, sample_id, ensemble_idx, tta_losses, eval_dices
+                )
 
             if debug:
                 break
@@ -683,30 +685,38 @@ class DGTTAProgram:
             usage="""dgtta <command> [<args>]
 
         Commands are:
-        pretrain        Pretrain an nnUNet model with DG trainers
+        inject_trainers Inject DG trainers into nnUNet module
+        pretrain        Pretrain on a dataset with DG trainers
         prepare_tta     Prepare test-time adaptation
         run_tta         Run test-time adaptation
         """,
         )
         parser.add_argument("command", help="Subcommand to run")
-        # parse_args defaults to [1:] for args, but you need to
-        # exclude the rest of the args too, or validation will fail
         args = parser.parse_args(sys.argv[1:2])
         if not hasattr(self, args.command):
             print("Unrecognized command")
             parser.print_help()
             exit(1)
-        # use dispatch pattern to invoke method with same name
         getattr(self, args.command)()
+
+    def inject_trainers(self):
+        parser = argparse.ArgumentParser(
+            description="Inject DG-TTA trainers into nnUNet module code"
+        )
+        parser.add_argument(
+            "--num_epochs", type=int, default=1000, help="Number of epochs to train"
+        )
+        args = parser.parse_args(sys.argv[2:])
+        inject_dg_trainers_into_nnunet(args.num_epochs)
 
     def pretrain(self):
         parser = argparse.ArgumentParser(
             description="Run pretraining with DG-TTA trainers"
         )
         parser.add_argument("--amend", action="store_true")
+        # TODO implement
         args = parser.parse_args(sys.argv[2:])
         raise NotImplementedError()
-        print(f"Running git commit, amend={args.ammend}")
 
     def prepare_tta(self):
         parser = argparse.ArgumentParser(
@@ -860,7 +870,6 @@ def main():
     ).is_dir(), (
         "Please define an existing root directory for DG-TTA by setting DG_TTA_ROOT."
     )
-    inject_dg_trainers_into_nnunet()
     DGTTAProgram()
 
 
