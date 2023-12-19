@@ -396,7 +396,7 @@ def tta_main(
 
         for ensemble_idx in trange(ensemble_count, desc="Ensembles"):
             tta_parameters_save_path = get_parameters_save_path(
-                save_path, sample_id, ensemble_idx
+                sub_dir_tta, sample_id, ensemble_idx
             )
             if tta_parameters_save_path.is_file():
                 tqdm.write(
@@ -559,7 +559,7 @@ def tta_main(
                                 input_format="argmaxed",
                             ).long()
                             d_tgt_val = dice_coeff(
-                                target_argmax, labels, len(optimized_labels)
+                                target_argmax, filtered_labels, len(optimized_labels)
                             )
 
                             eval_dices[epoch] += (
@@ -595,7 +595,7 @@ def tta_main(
 
             if not wandb_run_is_available():
                 plot_run_results(
-                    save_path, sample_id, ensemble_idx, tta_losses, eval_dices
+                    sub_dir_tta, sample_id, ensemble_idx, tta_losses, eval_dices
                 )
 
             if debug:
@@ -606,6 +606,13 @@ def tta_main(
     all_prediction_save_paths = []
 
     for smp_idx in trange(num_samples, desc="Samples"):
+        if tta_across_all_samples:
+            param_sample_id = "all_samples"
+            sub_dir_tta = save_path / "tta_output"
+        else:
+            param_sample_id = tta_data[smp_idx]["ofile"]
+            sub_dir_tta = save_path / Path(param_sample_id).parent
+
         ensemble_parameter_paths = []
         tta_sample = tta_data[smp_idx]
         tta_sample["data"] = get_imgs(tta_sample["data"].unsqueeze(0)).squeeze(0)
@@ -620,7 +627,7 @@ def tta_main(
 
         for ensemble_idx in range(config["ensemble_count"]):
             ensemble_parameter_paths.append(
-                get_parameters_save_path(save_path, sample_id, ensemble_idx)
+                get_parameters_save_path(sub_dir_tta, param_sample_id, ensemble_idx)
             )
 
         disable_internal_augmentation()
