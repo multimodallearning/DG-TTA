@@ -29,7 +29,3 @@ If you used DG-TTA, please cite:
 Weihsbach, C., Kruse, C. N., Bigalke, A., & Heinrich, M. P. (2023). DG-TTA: Out-of-domain medical image segmentation through Domain Generalization and Test-Time Adaptation. arXiv preprint arXiv:2312.06275.
 
 https://arxiv.org/abs/2312.06275
-
-##
-* TODO Add pypi package
-* TODO Test approach freshly installed
