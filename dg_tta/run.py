@@ -1,5 +1,4 @@
 import sys
-import os
 import re
 from pathlib import Path
 import importlib
@@ -16,7 +15,6 @@ from torch._dynamo import OptimizedModule
 import torch.nn.functional as F
 
 from tqdm import trange, tqdm
-import matplotlib.pyplot as plt
 
 if importlib.util.find_spec("wandb"):
     import wandb
@@ -24,6 +22,7 @@ if importlib.util.find_spec("wandb"):
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder_simple
 from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
+from nnunetv2.run.run_training import run_training_entry as nnunet_run_training_main
 
 import randomname
 
@@ -746,13 +745,10 @@ class DGTTAProgram:
         inject_dg_trainers_into_nnunet(args.num_epochs)
 
     def pretrain(self):
-        parser = argparse.ArgumentParser(
-            description="Run pretraining with DG-TTA trainers"
-        )
-        parser.add_argument("--amend", action="store_true")
-        # TODO implement
-        args = parser.parse_args(sys.argv[2:])
-        raise NotImplementedError()
+        print("Dispatching into nnUNetv2_train.")
+        sys.argv = sys.argv[2:]
+        sys.argv.insert(0, "nnUNetv2_train")
+        nnunet_run_training_main()
 
     def prepare_tta(self):
         parser = argparse.ArgumentParser(
@@ -901,7 +897,10 @@ class DGTTAProgram:
 
 
 def main():
-    check_dga_root_is_set()
+    if sys.argv[1] in ["--help", "-h"]:
+        check_dga_root_is_set(soft_check=True)
+    else:
+        check_dga_root_is_set()
     DGTTAProgram()
 
 

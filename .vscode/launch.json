@@ -21,6 +21,22 @@
             }
         },
         {
+            "name": "Python: run.py pretrain",
+            "type": "python",
+            "request": "launch",
+            "program": "/home/weihsbach/storage/staff/christianweihsbach/DG-TTA/dg_tta/run.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "/home/weihsbach/storage/staff/christianweihsbach/DG-TTA",
+            "args": ["pretrain"],
+            "env": {
+                "DG_TTA_ROOT": "/home/weihsbach/storage/staff/christianweihsbach/DG-TTA/test_env/dg_tta",
+                "nnUNet_raw": "/home/weihsbach/storage/staff/christianweihsbach/nnunet/nnUNetV2_raw",
+                "nnUNet_preprocessed": "/home/weihsbach/storage/staff/christianweihsbach/nnunet/nnUNetV2_preprocessed",
+                "nnUNet_results": "/home/weihsbach/storage/staff/christianweihsbach/nnunet/nnUNetV2_results",
+            }
+        },
+        {
             "name": "Python: run.py prepare",
             "type": "python",
             "request": "launch",
