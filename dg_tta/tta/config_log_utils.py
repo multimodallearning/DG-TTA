@@ -19,6 +19,8 @@ import torch
 from nnunetv2.paths import nnUNet_raw, nnUNet_results
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 
+import dg_tta
+
 TEMPLATE_PLAN = dict(
     tta_across_all_samples=False,
     tta_eval_patches=1,
@@ -45,16 +47,19 @@ class ModifierFunctions:
 
     @staticmethod
     def modify_tta_input_fn(image: torch.Tensor):
+        assert image.ndim == 5  # B,1,D,H,W
         # This function will be called on the input that is fed to the model
         return image
 
     @staticmethod
     def modfify_tta_model_output_fn(pred_label: torch.Tensor):
+        assert pred_label.ndim == 5  # B,C,D,H,W
         # This function will be called directly after model prediction
         return pred_label
 
     @staticmethod
     def modify_tta_output_after_mapping_fn(mapped_label: torch.Tensor):
+        assert mapped_label.ndim == 5  # B,MAPPED_C,D,H,W
         # This function will be called after model prediction when labels are mapped
         # to the target label numbers/ids.
         return mapped_label
@@ -237,7 +242,7 @@ def prepare_tta(
     initial_plan["optimized_labels"] = intersection_classes
 
     # Retrive filepath of tta_task data
-    tta_data_filepaths = get_tta_data_filepaths(tta_dataset_bucket, tta_dataset_name)
+    tta_data_filepaths = get_data_filepaths(tta_dataset_name, tta_dataset_bucket)
     initial_plan["tta_data_filepaths"] = [str(fp) for fp in tta_data_filepaths]
 
     # Dump plan
@@ -251,6 +256,8 @@ def prepare_tta(
         f.write("import pathlib\n")
         f.write("import torch\n\n")
         f.write(modifier_src)
+
+    copy_check_tta_input_notebook(plan_dir)
 
     print(
         f"Preparation done. You can edit the plan, modifier functions and optimized labels in {plan_dir} prior to running TTA."
@@ -307,7 +314,7 @@ def load_current_modifier_functions(plan_dir):
     return dyn_mod
 
 
-def get_tta_data_filepaths(tta_dataset_bucket, tta_dataset_name):
+def get_data_filepaths(tta_dataset_name, tta_dataset_bucket):
     raw_tta_dataset_dir = Path(nnUNet_raw, tta_dataset_name)
     if tta_dataset_bucket == "imagesTr":
         source_folders = [raw_tta_dataset_dir / "imagesTr"]
@@ -359,20 +366,20 @@ def plot_run_results(save_path, sample_id, ensemble_idx, tta_losses, eval_dices)
     fig, ax_one = plt.subplots()
     ax_two = ax_one.twinx()
     cmap = get_dgtta_colormap()
-    c1,c2 = cmap(0.0), cmap(.8)
+    c1, c2 = cmap(0.0), cmap(0.8)
     ax_one.plot(tta_losses, label="loss", c=c1)
     ax_one.set_yticks([tta_losses.min(), tta_losses.max()])
-    ax_one.set_xlim(0, len(tta_losses)-1)
+    ax_one.set_xlim(0, len(tta_losses) - 1)
     ax_one.set_ylabel("Soft-Dice Loss", c=c1)
-    ax_one.tick_params(axis='y', colors=c1)
+    ax_one.tick_params(axis="y", colors=c1)
     ax_one.set_xlabel("TTA Epoch")
-    ax_one.grid(axis='y', linestyle='--', linewidth=0.5)
+    ax_one.grid(axis="y", linestyle="--", linewidth=0.5)
     ax_one.yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter("%.3f"))
 
     ax_two.plot(eval_dices * 100, label="eval_dices", c=c2)
     ax_two.set_yticks([eval_dices.min() * 100, eval_dices.max() * 100])
     ax_two.set_ylabel("Pseudo Dice in %", c=c2)
-    ax_two.tick_params(axis='y', colors=c2)
+    ax_two.tick_params(axis="y", colors=c2)
     ax_two.yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter("%.1f"))
     fig.suptitle(f"{sample_id} (ensemble_idx={ensemble_idx})")
     tta_plot_save_path = (
@@ -381,3 +388,11 @@ def plot_run_results(save_path, sample_id, ensemble_idx, tta_losses, eval_dices)
     fig.savefig(tta_plot_save_path)
     fig.tight_layout()
     plt.close(fig)
+
+
+def copy_check_tta_input_notebook(plan_dir):
+    NB_FILENAME = "check_tta_input.ipynb"
+    shutil.copyfile(
+        Path(dg_tta.__file__).parent / "__resources__" / NB_FILENAME,
+        plan_dir / NB_FILENAME,
+    )

@@ -29,7 +29,7 @@ import randomname
 
 import dg_tta
 from dg_tta.__build__ import inject_dg_trainers_into_nnunet
-from dg_tta.utils import disable_internal_augmentation
+from dg_tta.utils import disable_internal_augmentation, check_dga_root_is_set
 from dg_tta.gin import gin_aug
 from dg_tta.tta.torch_utils import (
     get_batch,
@@ -234,6 +234,7 @@ def calc_branch(
     batch_size,
     label_mapping,
     optimized_labels,
+    modifier_fn_module,
     imgs,
     device,
 ):
@@ -242,6 +243,8 @@ def calc_branch(
     grad_context = (
         nullcontext if config["have_grad_in"] in ["branch_a", "both"] else torch.no_grad
     )
+
+    modify_tta_output_after_mapping_fn = modifier_fn_module.ModifierFunctions.modify_tta_output_after_mapping_fn
 
     with grad_context():
         zero_grid = 0.0 * identity_grid
@@ -305,6 +308,7 @@ def calc_branch(
             get_map_idxs(label_mapping, optimized_labels, input_type="pretrain_labels"),
             input_format="logits",
         )
+        branch_target = modify_tta_output_after_mapping_fn(branch_target)
 
         if isinstance(branch_target, tuple):
             branch_target = branch_target[0]
@@ -330,6 +334,8 @@ def tta_main(
     device,
     debug=False,
 ):
+    START_CLASS = 1  # Do not use background for consistency loss
+
     # Load model
     pretrained_weights_filepath = config["pretrained_weights_filepath"]
     predictor, patch_size, network, parameters = load_network(
@@ -359,7 +365,6 @@ def tta_main(
 
     sitk_io = SimpleITKIO()
 
-    zero_grid = torch.zeros([B] + patch_size + [3], device=device)
     identity_grid = F.affine_grid(
         torch.eye(4, device=device).repeat(B, 1, 1)[:, :3],
         [B, 1] + patch_size,
@@ -408,7 +413,6 @@ def tta_main(
             optimizer = torch.optim.AdamW(model.parameters(), lr=config["lr"])
 
             tbar = trange(num_epochs, desc="Epoch")
-            START_CLASS = 1
 
             model.apply(fix_all)
             for epoch in tbar:
@@ -463,6 +467,7 @@ def tta_main(
                         B,
                         label_mapping,
                         optimized_labels,
+                        modifier_fn_module,
                         imgs,
                         device,
                     )
@@ -476,6 +481,7 @@ def tta_main(
                         B,
                         label_mapping,
                         optimized_labels,
+                        modifier_fn_module,
                         imgs,
                         device,
                     )
@@ -546,7 +552,7 @@ def tta_main(
                         break
 
                 tbar.set_description(
-                    f"Epochs, loss={tta_losses[epoch]:.3f}, Pseudo-Dice={eval_dices[epoch]*100:.1f}"
+                    f"Epochs, loss={tta_losses[epoch]:.3f}, Pseudo-Dice={eval_dices[epoch]*100:.1f}%"
                 )
                 if wandb_is_available():
                     wandb.log(
@@ -620,8 +626,6 @@ def tta_main(
 
     tqdm.write("Evaluating predictions...")
 
-    image_reader_writer = SimpleITKIO()
-
     for pred_path in all_prediction_save_paths:
         pred_label_name = Path(pred_path).name
         if "outputTs" in Path(pred_path).parent.parts[-1]:
@@ -636,16 +640,14 @@ def tta_main(
         path_mapped_target.parent.mkdir(exist_ok=True)
         shutil.copy(path_orig_target, path_mapped_target)
 
-        seg, sitk_stuff = image_reader_writer.read_seg(path_mapped_target)
+        seg, sitk_stuff = sitk_io.read_seg(path_mapped_target)
         seg = torch.as_tensor(seg)
         mapped_seg = map_label(
             seg,
             get_map_idxs(label_mapping, optimized_labels, input_type="tta_labels"),
             input_format="argmaxed",
         ).squeeze(0)
-        image_reader_writer.write_seg(
-            mapped_seg.squeeze(0).numpy(), path_mapped_target, sitk_stuff
-        )
+        sitk_io.write_seg(mapped_seg.squeeze(0).numpy(), path_mapped_target, sitk_stuff)
 
     for bucket in ["Ts", "Tr"]:
         all_mapped_targets_path = save_path / f"mapped_target_labels{bucket}"
@@ -865,11 +867,7 @@ class DGTTAProgram:
 
 
 def main():
-    assert Path(
-        os.environ.get("DG_TTA_ROOT", "_")
-    ).is_dir(), (
-        "Please define an existing root directory for DG-TTA by setting DG_TTA_ROOT."
-    )
+    check_dga_root_is_set()
     DGTTAProgram()
 
 

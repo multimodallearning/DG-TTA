@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 
 def enable_internal_augmentation():
@@ -15,3 +16,11 @@ def check_internal_augmentation_disabled():
 
 def get_internal_augmentation_enabled():
     return os.environ.get("DG_TTA_INTERNAL_AUGMENTATION").lower() == "true"
+
+
+def check_dga_root_is_set():
+    assert Path(
+        os.environ.get("DG_TTA_ROOT", "_")
+    ).is_dir(), (
+        "Please define an existing root directory for DG-TTA by setting DG_TTA_ROOT."
+    )
