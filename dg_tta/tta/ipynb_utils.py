@@ -1,4 +1,5 @@
 import json
+import matplotlib
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.axes_grid import ImageGrid
 import numpy as np
@@ -6,11 +7,18 @@ import torch
 
 from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
 
-from dg_tta.tta.config_log_utils import get_data_filepaths, get_dgtta_colormap
+from dg_tta.tta.config_log_utils import (
+    get_data_filepaths,
+    get_dgtta_colormap,
+    get_resources_dir,
+)
 from dg_tta.utils import check_dga_root_is_set
 
 
 def read_image(source_data_paths, path_idx):
+    if source_data_paths is None:
+        return None, None
+
     source_img, source_sitk_stuff = SimpleITKIO().read_images(
         source_data_paths[path_idx : path_idx + 1]
     )
@@ -37,8 +45,11 @@ def get_source_imgs_datapaths():
     with open("tta_plan.json", "r") as f:
         tta_plan = json.load(f)
     source_dataset_name = tta_plan["__pretrained_dataset_name__"]
-    source_data_paths = []
 
+    if source_dataset_name.startswith("TS104"):
+        return "TS104"
+
+    source_data_paths = []
     for buc in buckets:
         source_data_paths.extend(get_data_filepaths(source_dataset_name, buc))
     return source_data_paths
@@ -78,7 +89,7 @@ def get_spacing_ratio(sitk_stuff, axis_idx):
 
 def show_image_overview(img, sitk_stuff, fig_inch_size=5.0):
     orient_imgs = get_orient_imgs(img)
-    vmin, vmax =img.min(), img.max()
+    vmin, vmax = img.min(), img.max()
 
     dpi = 100.0
     large_text_size = fig_inch_size * 10
@@ -127,5 +138,18 @@ def show_image_overview(img, sitk_stuff, fig_inch_size=5.0):
         fontsize=small_text_size,
         transform=fig_axes.flatten()[3].transAxes,
     )
+    # plt.savefig("out.png", bbox_inches="tight", pad_inches=0)
+    plt.show()
+    plt.close(fig)
+
+
+def show_ts104_image():
+    img_path = get_resources_dir() / "TS104_input_view.png"
+    fig, ax = plt.subplots()
+    fig.set_facecolor("black")
+    img = matplotlib.image.imread(img_path)
+    ax.imshow(img)
+    clear_axis(ax)
+    ax.set_facecolor("black")
     plt.show()
     plt.close(fig)

@@ -94,7 +94,7 @@ def get_tta_folders(
     root_dir = Path(os.environ["DG_TTA_ROOT"])
 
     pretrainer, pretrainer_config, pretrainer_fold = check_dataset_pretrain_config(
-        pretrained_dataset_id
+        pretrained_dataset_id, pretrainer, pretrainer_config, pretrainer_fold
     )
 
     # Get dataset names
@@ -125,7 +125,9 @@ def get_tta_folders(
     )
 
 
-def check_dataset_pretrain_config(pretrained_dataset_id):
+def check_dataset_pretrain_config(
+    pretrained_dataset_id, pretrainer, pretrainer_config, pretrainer_fold
+):
     assert pretrained_dataset_id in [
         "TS104_GIN",
         "TS104_MIND",
@@ -272,9 +274,12 @@ def prepare_tta(
     )
 
 
+def get_resources_dir():
+    return Path(dg_tta.__file__).parent / "__resources__"
+
+
 def download_pretrained_weights(pretrained_dataset_id):
     pretrained_weights_dir = Path(os.environ["DG_TTA_ROOT"]) / "_pretrained_weights"
-    resources_dir = Path(dg_tta.__file__).parent / "__resources__"
 
     if pretrained_dataset_id == "TS104_GIN":
         pretrainer_dir = "nnUNetTrainer_GIN__nnUNetPlans__3d_fullres"
@@ -291,7 +296,7 @@ def download_pretrained_weights(pretrained_dataset_id):
     else:
         raise ValueError()
 
-    dummy_results_path = resources_dir / "dummy_results" / pretrainer_dir
+    dummy_results_path = get_resources_dir() / "dummy_results" / pretrainer_dir
     target_path = pretrained_weights_dir / pretrainer_dir
     target_path_weights = target_path / "fold_0" / "checkpoint_final.pth"
 
@@ -408,8 +413,7 @@ def plot_run_results(save_path, sample_id, ensemble_idx, tta_losses, eval_dices)
 
 def copy_check_tta_input_notebook(plan_dir):
     NB_FILENAME = "check_tta_input.ipynb"
-    resources_dir = Path(dg_tta.__file__).parent / "__resources__"
     shutil.copyfile(
-        resources_dir / NB_FILENAME,
+        get_resources_dir() / NB_FILENAME,
         plan_dir / NB_FILENAME,
     )
