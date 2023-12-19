@@ -91,7 +91,7 @@ def show_image_overview(img, sitk_stuff, fig_inch_size=5.0):
     orient_imgs = get_orient_imgs(img)
     vmin, vmax = img.min(), img.max()
 
-    dpi = 100.0
+    dpi = 150.0
     large_text_size = fig_inch_size * 10
     small_text_size = fig_inch_size * 2
     cmap = get_dgtta_colormap()
@@ -145,7 +145,8 @@ def show_image_overview(img, sitk_stuff, fig_inch_size=5.0):
 
 def show_ts104_image():
     img_path = get_resources_dir() / "TS104_input_view.png"
-    fig, ax = plt.subplots()
+    fig_inch_size = 7.0
+    fig, ax = plt.subplots(dpi=150.0, figsize=(fig_inch_size, fig_inch_size))
     fig.set_facecolor("black")
     img = matplotlib.image.imread(img_path)
     ax.imshow(img)
