@@ -3,6 +3,7 @@ template
 test_env
 *.pt
 *.ipynb
+!dg_tta/__resources__/*.ipynb
 dist
 wandb
 *.DS_Store
