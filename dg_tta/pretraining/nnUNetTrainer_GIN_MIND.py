@@ -28,6 +28,7 @@ class nnUNetTrainer_GIN_MIND(nnUNetTrainer):
         )
         self.num_epochs = 1000
 
+    @staticmethod
     def build_network_architecture(
         plans_manager: PlansManager,
         dataset_json,

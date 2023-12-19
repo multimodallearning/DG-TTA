@@ -897,7 +897,7 @@ class DGTTAProgram:
 
 
 def main():
-    if sys.argv[1] in ["--help", "-h"]:
+    if len(sys.argv) == 1 or sys.argv[1] in ["--help", "-h"]:
         check_dga_root_is_set(soft_check=True)
     else:
         check_dga_root_is_set()
