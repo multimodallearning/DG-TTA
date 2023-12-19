@@ -5,3 +5,4 @@ test_env
 *.ipynb
 dist
 wandb
+*.DS_Store
