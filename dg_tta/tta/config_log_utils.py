@@ -333,12 +333,12 @@ def get_data_filepaths(tta_dataset_name, tta_dataset_bucket):
     return file_list
 
 
-def wandb_is_available():
-    return importlib.util.find_spec("wandb")
-
-
 def wandb_run_is_available():
-    return importlib.util.find_spec("wandb") is not None and wandb.run is not None
+    return (
+        importlib.util.find_spec("wandb") is not None
+        and wandb.run is not None
+        and not wandb.run.disabled
+    )
 
 
 @contextmanager

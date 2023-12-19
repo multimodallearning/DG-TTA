@@ -52,7 +52,7 @@ from dg_tta.tta.config_log_utils import (
     load_current_modifier_functions,
     get_global_idx,
     get_tta_folders,
-    wandb_is_available,
+    wandb_run_is_available,
     suppress_stdout,
     plot_run_results,
 )
@@ -89,7 +89,9 @@ def get_data_iterator(
     if len(list_of_lists_or_source_folder) == 0:
         return iter(())
 
-    nnUNetPredictor._internal_get_data_iterator_from_lists_of_filenames
+    seg_from_prev_stage_files = [
+        s if Path(s).is_file() else None for s in seg_from_prev_stage_files
+    ]
     data_iterator = predictor._internal_get_data_iterator_from_lists_of_filenames(
         list_of_lists_or_source_folder,
         seg_from_prev_stage_files,
@@ -244,7 +246,9 @@ def calc_branch(
         nullcontext if config["have_grad_in"] in ["branch_a", "both"] else torch.no_grad
     )
 
-    modify_tta_output_after_mapping_fn = modifier_fn_module.ModifierFunctions.modify_tta_output_after_mapping_fn
+    modify_tta_output_after_mapping_fn = (
+        modifier_fn_module.ModifierFunctions.modify_tta_output_after_mapping_fn
+    )
 
     with grad_context():
         zero_grid = 0.0 * identity_grid
@@ -424,7 +428,7 @@ def tta_main(
                         (epoch, num_epochs),
                     ]
                 )
-                if wandb_is_available():
+                if wandb_run_is_available():
                     wandb.log({"ref_epoch_idx": epoch}, global_idx)
                 step_losses = []
 
@@ -449,13 +453,15 @@ def tta_main(
 
                 for _ in range(patches_to_be_accumulated):
                     with torch.no_grad():
-                        imgs, labels = get_batch(
+                        imgs, _ = get_batch(
                             tta_tens_list,
                             torch.randperm(len(tta_tens_list))[:B],
                             patch_size,
                             fixed_patch_idx=None,
                             device=device,
                         )
+
+                    imgs = torch.cat(imgs,dim=0)
 
                     target_a = calc_branch(
                         "branch_a",
@@ -518,35 +524,47 @@ def tta_main(
                             device=device,
                         )
 
-                        output_eval = model(imgs)
-                        if isinstance(output_eval, tuple):
-                            output_eval = output_eval[0]
+                        imgs = torch.cat(imgs,dim=0)
 
-                        output_eval = map_label(
-                            output_eval,
-                            get_map_idxs(
-                                label_mapping,
-                                optimized_labels,
-                                input_type="pretrain_labels",
-                            ),
-                            input_format="logits",
-                        )
-                        target_argmax = output_eval.argmax(1)
+                        none_labels = [l is None for l in labels]
+                        filtered_imgs = imgs[~torch.as_tensor(none_labels)]
+                        filtered_labels = [l for flag, l in zip(none_labels, labels) if not flag]
 
-                        labels = map_label(
-                            labels,
-                            get_map_idxs(
-                                label_mapping, optimized_labels, input_type="tta_labels"
-                            ),
-                            input_format="argmaxed",
-                        ).long()
-                        d_tgt_val = dice_coeff(
-                            target_argmax, labels, len(optimized_labels)
-                        )
+                        if len(filtered_imgs) == 0:
+                            eval_dices[epoch] = float('nan')
+                            continue
 
-                        eval_dices[epoch] += (
-                            1 / tta_eval_patches * d_tgt_val.mean().item()
-                        )
+                        else:
+                            filtered_labels = torch.cat(filtered_labels,dim=0)
+                            output_eval = model(filtered_imgs)
+                            if isinstance(output_eval, tuple):
+                                output_eval = output_eval[0]
+
+                            output_eval = map_label(
+                                output_eval,
+                                get_map_idxs(
+                                    label_mapping,
+                                    optimized_labels,
+                                    input_type="pretrain_labels",
+                                ),
+                                input_format="logits",
+                            )
+                            target_argmax = output_eval.argmax(1)
+
+                            filtered_labels = map_label(
+                                filtered_labels,
+                                get_map_idxs(
+                                    label_mapping, optimized_labels, input_type="tta_labels"
+                                ),
+                                input_format="argmaxed",
+                            ).long()
+                            d_tgt_val = dice_coeff(
+                                target_argmax, labels, len(optimized_labels)
+                            )
+
+                            eval_dices[epoch] += (
+                                1 / tta_eval_patches * d_tgt_val.mean().item()
+                            )
 
                     if debug:
                         break
@@ -554,7 +572,7 @@ def tta_main(
                 tbar.set_description(
                     f"Epochs, loss={tta_losses[epoch]:.3f}, Pseudo-Dice={eval_dices[epoch]*100:.1f}%"
                 )
-                if wandb_is_available():
+                if wandb_run_is_available():
                     wandb.log(
                         {
                             f"losses/loss__{sample_id}__ensemble_idx_{ensemble_idx}": tta_losses[
@@ -575,7 +593,7 @@ def tta_main(
             tta_parameters = [model.state_dict()]
             torch.save(tta_parameters, tta_parameters_save_path)
 
-            if not wandb_is_available():
+            if not wandb_run_is_available():
                 plot_run_results(
                     save_path, sample_id, ensemble_idx, tta_losses, eval_dices
                 )
@@ -637,6 +655,10 @@ def tta_main(
         else:
             raise ValueError()
 
+        if not path_orig_target.is_file():
+            # No target available
+            continue
+
         path_mapped_target.parent.mkdir(exist_ok=True)
         shutil.copy(path_orig_target, path_mapped_target)
 
@@ -676,7 +698,7 @@ def tta_main(
             summary_json = json.load(f)
             final_mean_dice = summary_json["foreground_mean"]["Dice"]
 
-        if wandb_is_available():
+        if wandb_run_is_available():
             wandb.log({f"scores/tta_dice_mean_{bucket}": final_mean_dice})
 
 
@@ -859,7 +881,7 @@ class DGTTAProgram:
             device=device,
         )
 
-        if wandb_is_available():
+        if wandb_run_is_available():
             wandb_run("DG-TTA", tta_main, **kwargs)
             sys.exit(0)
 

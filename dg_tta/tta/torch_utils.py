@@ -19,10 +19,8 @@ def get_batch(tensor_list, batch_idx, patch_size, fixed_patch_idx=None, device="
 
     device = torch.device(device)
     B = len(batch_idx)
-    b_img = torch.zeros(B, 1, patch_size[0], patch_size[1], patch_size[2]).to(device)
-    b_label = (
-        torch.zeros(B, patch_size[0], patch_size[1], patch_size[2]).to(device).long()
-    )
+    b_img = []
+    b_label = []
 
     for b in range(B):
         with torch.no_grad():
@@ -69,18 +67,24 @@ def get_batch(tensor_list, batch_idx, patch_size, fixed_patch_idx=None, device="
                 rand_patch_w : rand_patch_w + patch_size[2],
             ]
 
-            b_img[b] = F.grid_sample(
+            b_img.append(F.grid_sample(
                 data[0:1].unsqueeze(0).to(device), patch_grid, align_corners=False
-            )
+            ))
 
-            b_label[b] = get_argmaxed_segs(
-                F.grid_sample(
-                    data[1:].unsqueeze(0).to(device),
-                    patch_grid,
-                    align_corners=False,
-                    mode="nearest",
+            if data[1:].numel() == 0:
+                # No GT label is available for this sample
+                b_label.append(None)
+            else:
+                b_label.append(
+                    get_argmaxed_segs(
+                        F.grid_sample(
+                            data[1:].unsqueeze(0).to(device),
+                            patch_grid,
+                            align_corners=False,
+                            mode="nearest",
+                        )
+                    )
                 )
-            )
 
     return b_img, b_label
 
