@@ -418,3 +418,10 @@ def copy_check_tta_input_notebook(plan_dir):
         get_resources_dir() / NB_FILENAME,
         plan_dir / NB_FILENAME,
     )
+
+
+def get_parameters_save_path(save_path, sample_id, ensemble_idx):
+    tta_parameters_save_path = (
+        save_path / f"{sample_id}__ensemble_idx_{ensemble_idx}_tta_parameters.pt"
+    )
+    return tta_parameters_save_path
