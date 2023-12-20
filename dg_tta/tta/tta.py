@@ -1,3 +1,4 @@
+from itertools import tee
 from pathlib import Path
 import importlib
 import shutil
@@ -51,6 +52,22 @@ from dg_tta.tta.nnunet_utils import (
 INTENSITY_AUG_FUNCTION_DICT = {"disabled": lambda img: img, "GIN": gin_aug}
 
 
+def get_sample_specs(smp_idx, tta_data, save_path, tta_across_all_samples=False):
+    if tta_across_all_samples:
+        tta_sample = None
+        tta_tens_list = [e["data"] for e in tta_data]
+        sample_id = "all_samples"
+        sub_dir_tta = save_path / "tta_output"
+    else:
+        tta_sample = next(tta_data)
+        # tta_sample = tta_data[smp_idx] # In case you don't use a generator
+        tta_tens_list = [tta_sample["data"]]
+        sample_id = tta_sample["ofile"]
+        sub_dir_tta = save_path / Path(sample_id).parent
+
+    return tta_sample, tta_tens_list, sample_id, sub_dir_tta
+
+
 def tta_main(
     run_name,
     config,
@@ -70,10 +87,19 @@ def tta_main(
     )
 
     # Load TTA data
-    tta_data = load_tta_data(config, tta_data_dir, predictor)
-
-    num_samples = len(tta_data)
     tta_across_all_samples = config["tta_across_all_samples"]
+
+    tqdm.write("\n# Loading data")
+    tta_data, num_samples = load_tta_data(
+        config, tta_data_dir, predictor, tta_across_all_samples
+    )
+
+    if tta_across_all_samples:
+        # TTA data is a list
+        inference_data = tta_data
+    else:
+        # TTA data is a generator, so we need to copy it for inference
+        tta_data, inference_data = tee(tta_data)
 
     ensemble_count = config["ensemble_count"]
     B = config["batch_size"]
@@ -105,15 +131,12 @@ def tta_main(
 
     disable_internal_augmentation()
 
+    tqdm.write("\n# Starting TTA")
     for smp_idx in sample_range:
-        if tta_across_all_samples:
-            tta_tens_list = [e["data"] for e in tta_data]
-            sample_id = "all_samples"
-            sub_dir_tta = save_path / "tta_output"
-        else:
-            tta_tens_list = [tta_data[smp_idx]["data"]]
-            sample_id = tta_data[smp_idx]["ofile"]
-            sub_dir_tta = save_path / Path(sample_id).parent
+        _, tta_tens_list, sample_id, sub_dir_tta = get_sample_specs(
+            smp_idx, tta_data, save_path, tta_across_all_samples
+        )
+        tqdm.write(f"\nSample {sample_id}")
 
         sub_dir_tta.mkdir(exist_ok=True)
 
@@ -156,7 +179,6 @@ def tta_main(
                 step_losses = []
 
                 if epoch == start_tta_at_epoch:
-                    tqdm.write("Starting train")
                     model.apply(fix_all)
                     if config["params_with_grad"] == "all":
                         model.apply(release_all)
@@ -329,25 +351,22 @@ def tta_main(
                 break
         # End of ensemble loop
 
-    print("Starting prediction")
+    print("\n\n# Starting inference")
     all_prediction_save_paths = []
 
     for smp_idx in trange(num_samples, desc="Samples"):
-        if tta_across_all_samples:
-            param_sample_id = "all_samples"
-            sub_dir_tta = save_path / "tta_output"
-        else:
-            param_sample_id = tta_data[smp_idx]["ofile"]
-            sub_dir_tta = save_path / Path(param_sample_id).parent
-
         ensemble_parameter_paths = []
-        tta_sample = tta_data[smp_idx]
+
+        tta_sample, tta_tens_list, param_sample_id, sub_dir_tta = get_sample_specs(
+            smp_idx, inference_data, save_path, across_all_samples=False
+        )
+        tqdm.write(f"\nSample {param_sample_id}\n")
         tta_sample["data"] = get_imgs(tta_sample["data"].unsqueeze(0)).squeeze(0)
 
         # Update internal save path for nnUNet
-        ofile = tta_data[smp_idx]["ofile"]
+        ofile = tta_sample["ofile"]
         new_ofile = str(save_path / ofile)
-        tta_data[smp_idx]["ofile"] = new_ofile
+        tta_sample["ofile"] = new_ofile
 
         prediction_save_path = Path(new_ofile + ".nii.gz")
         prediction_save_path.parent.mkdir(exist_ok=True)
@@ -376,7 +395,7 @@ def tta_main(
 
     # End of sample loop
 
-    tqdm.write("Evaluating predictions...")
+    tqdm.write("\n\nEvaluating predictions")
 
     for pred_path in all_prediction_save_paths:
         pred_label_name = Path(pred_path).name

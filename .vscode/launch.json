@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["inject_trainers", "--num_epochs", "150"],
-
+            "envFile": "${workspaceFolder}/.env",
         },
         {
             "name": "Python: run.py pretrain",
@@ -22,7 +22,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["pretrain"],
-
+            "envFile": "${workspaceFolder}/.env",
         },
         {
             "name": "Python: run.py prepare",
@@ -32,7 +32,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["prepare_tta", "804", "803", "--pretrainer", "nnUNetTrainer_GIN", "--tta_dataset_bucket", "imagesTrAndTs"],
-
+            "envFile": "${workspaceFolder}/.env",
         },
         {
             "name": "Python: run.py run",
@@ -42,7 +42,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["run_tta", "804", "803", "--pretrainer", "nnUNetTrainer_GIN"],
-
+            "envFile": "${workspaceFolder}/.env",
         },
         {
             "name": "Python: run.py prepare TS104_GIN",
@@ -52,7 +52,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["prepare_tta", "TS104_GIN", "803", "--tta_dataset_bucket", "imagesTrAndTs"],
-
+            "envFile": "${workspaceFolder}/.env",
         },
         {
             "name": "Python: run.py TS104_GIN",
@@ -62,7 +62,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["run_tta", "TS104_GIN", "803"],
-
+            "envFile": "${workspaceFolder}/.env",
         },
         {
             "name": "Python: run.py prepare 505 803",
@@ -72,6 +72,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["prepare_tta", "505", "803", "--pretrainer", "nnUNetTrainer_GIN", "--tta_dataset_bucket", "imagesTrAndTs"],
+            "envFile": "${workspaceFolder}/.env",
         },
     ]
 }

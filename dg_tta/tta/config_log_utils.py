@@ -270,7 +270,7 @@ def prepare_tta(
     copy_check_tta_input_notebook(plan_dir)
 
     print(
-        f"Preparation done. You can edit the plan, modifier functions and optimized labels in {plan_dir} prior to running TTA."
+        f"\nPreparation done. You can edit the plan, modifier functions and optimized labels in {plan_dir} prior to running TTA."
     )
 
 
