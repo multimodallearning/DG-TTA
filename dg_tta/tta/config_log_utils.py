@@ -301,6 +301,7 @@ def download_pretrained_weights(pretrained_dataset_id):
     target_path_weights = target_path / "fold_0" / "checkpoint_final.pth"
 
     target_path.parent.mkdir(exist_ok=True)
+    target_path_weights.parent.mkdir(exist_ok=True)
 
     # Copy dummy pretraining results (folder structure and nnUNet fils)
     shutil.copytree(dummy_results_path, target_path, dirs_exist_ok=True)

@@ -836,6 +836,11 @@ class DGTTAProgram:
             if args.pretrained_dataset_id.isnumeric()
             else args.pretrained_dataset_id
         )
+        pretrainer_fold = (
+            int(args.pretrainer_fold)
+            if args.pretrainer_fold.isnumeric()
+            else args.pretrainer_fold
+        )
 
         (
             tta_data_dir,
@@ -848,7 +853,7 @@ class DGTTAProgram:
             int(args.tta_dataset_id),
             args.pretrainer,
             args.pretrainer_config,
-            args.pretrainer_fold,
+            pretrainer_fold,
         )
 
         now_str = datetime.now().strftime("%Y%m%d__%H_%M_%S")
