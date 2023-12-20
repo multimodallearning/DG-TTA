@@ -35,16 +35,21 @@ export DG_TTA_ROOT="/path/to/dir"
 
 1) Use case: Get to know the tool
   * `source paths.sh && dgtta`
+  
 2) Use case: Pre-train a GIN_MIND model on dataset 802 in nnUNet
   * `source paths.sh && dgtta inject_trainers --num_epochs 150`
   * `source paths.sh && dgtta pretrain -tr nnUNetTrainer_GIN_MIND 802 3d_fullres 0`
+
 3) Use case: Run TTA on dataset 678 for the pre-trained model of step 2)
+  * Inject trainers: `source paths.sh && dgtta inject_trainers`
   * Prepare TTA: `source paths.sh && dgtta prepare_tta 802 678 --pretrainer nnUNetTrainer_GIN --pretrainer nnUNetTrainer_GIN_MIND --pretrainer_config 3d_fullres --pretrainer_fold 0 --tta_dataset_bucket imagesTrAndTs`
   * Now inspect and change the `plan.json` (see console output of preparation). E.g. remove some samples on which you do not want to perform TTA on, change the number of TTA epochs etc.
   * Also inspect the notebook inside the plans folder and visualize the dataset orientation. Modify functions of `modifier_functions.py` as explained in the notebook to get the input/output orientation of the TTA data right.
   * Run TTA: `source paths.sh && dgtta run_tta 802 678 --pretrainer nnUNetTrainer_GIN_MIND --pretrainer_config 3d_fullres --pretrainer_fold 0`
   * Find the results inside the DG_TTA_ROOT directory
+
 4) Use case: Run TTA on dataset 678 with our pre-trained GIN model:
+  * Inject trainers: `source paths.sh && dgtta inject_trainers`
   * Prepare TTA: `source paths.sh && dgtta prepare_tta TS104_GIN 678 --pretrainer nnUNetTrainer_GIN --tta_dataset_bucket imagesTrAndTs`
   * Run TTA: `source paths.sh && dgtta run_tta TS104_GIN 678 --pretrainer nnUNetTrainer_GIN`
 

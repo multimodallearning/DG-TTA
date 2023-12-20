@@ -14,7 +14,7 @@ import randomname
 from nnunetv2.run.run_training import run_training_entry as nnunet_run_training_main
 
 import dg_tta
-from dg_tta.__build__ import inject_dg_trainers_into_nnunet
+from dg_tta.__build__ import inject_dg_trainers_into_nnunet, check_trainers_injected
 from dg_tta.utils import check_dga_root_is_set
 from dg_tta.tta.torch_utils import generate_label_mapping
 
@@ -61,12 +61,14 @@ class DGTTAProgram:
         inject_dg_trainers_into_nnunet(args.num_epochs)
 
     def pretrain(self):
+        check_trainers_injected()
         print("Dispatching into nnUNetv2_train.")
         sys.argv = sys.argv[2:]
         sys.argv.insert(0, "nnUNetv2_train")
         nnunet_run_training_main()
 
     def prepare_tta(self):
+        check_trainers_injected()
         parser = argparse.ArgumentParser(
             description="Prepare DG-TTA", usage="""dgtta prepare_tta [-h]"""
         )
@@ -121,6 +123,7 @@ class DGTTAProgram:
         )
 
     def run_tta(self):
+        check_trainers_injected()
         parser = argparse.ArgumentParser(description="Run DG-TTA")
         parser.add_argument(
             "pretrained_dataset_id",
