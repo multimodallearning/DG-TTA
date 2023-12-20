@@ -404,8 +404,9 @@ def plot_run_results(save_path, sample_id, ensemble_idx, tta_losses, eval_dices)
     ax_two.tick_params(axis="y", colors=c2)
     ax_two.yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter("%.1f"))
     fig.suptitle(f"{sample_id} (ensemble_idx={ensemble_idx})")
+    split_sample_id = sample_id.split('/')[-1]
     tta_plot_save_path = (
-        save_path / f"{sample_id}__ensemble_idx_{ensemble_idx}_tta_results.png"
+        save_path / f"{split_sample_id}__ensemble_idx_{ensemble_idx}_tta_results.png"
     )
     fig.savefig(tta_plot_save_path)
     fig.tight_layout()
@@ -421,6 +422,7 @@ def copy_check_tta_input_notebook(plan_dir):
 
 
 def get_parameters_save_path(save_path, sample_id, ensemble_idx):
+    sample_id = sample_id.split('/')[-1]
     tta_parameters_save_path = (
         save_path / f"{sample_id}__ensemble_idx_{ensemble_idx}_tta_parameters.pt"
     )

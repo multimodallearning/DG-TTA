@@ -52,8 +52,8 @@ from dg_tta.tta.nnunet_utils import (
 INTENSITY_AUG_FUNCTION_DICT = {"disabled": lambda img: img, "GIN": gin_aug}
 
 
-def get_sample_specs(smp_idx, tta_data, save_path, tta_across_all_samples=False):
-    if tta_across_all_samples:
+def get_sample_specs(smp_idx, tta_data, save_path, across_all_samples=False):
+    if across_all_samples:
         tta_sample = None
         tta_tens_list = [e["data"] for e in tta_data]
         sample_id = "all_samples"

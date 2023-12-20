@@ -73,7 +73,7 @@ def load_tta_data(config, dataset_raw_path, predictor, tta_across_all_samples=Fa
         )
 
     if tta_across_all_samples:
-        data = list(ts_iterator) + list(tr_iterator)
+        data = list(ts_iterator) + list(tr_iterator), ts_data_len + tr_data_len
     else:
         data = chain(ts_iterator, tr_iterator), ts_data_len + tr_data_len
 
