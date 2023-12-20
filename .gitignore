@@ -8,3 +8,4 @@ dist
 wandb
 *.DS_Store
 .env
+paths.sh

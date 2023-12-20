@@ -31,7 +31,7 @@
             "program": "dg_tta/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["prepare_tta", "804", "803", "--pretrainer", "nnUNetTrainer_GIN", "--tta_dataset_bucket", "imagesTrAndTs"],
+            "args": ["prepare_tta", "TS104_GIN", "803"],
             "envFile": "${workspaceFolder}/.env",
         },
         {
