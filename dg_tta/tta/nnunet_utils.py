@@ -46,7 +46,7 @@ def get_data_iterator(
     seg_from_prev_stage_files = [
         s if Path(s).is_file() else None for s in seg_from_prev_stage_files
     ]
-    data_iterator = _internal_get_data_iterator_from_lists_of_filenames(
+    data_iterator = get_data_iterator_from_lists_of_filenames(
         predictor,
         list_of_lists_or_source_folder,
         seg_from_prev_stage_files,
@@ -123,13 +123,13 @@ def run_inference(config, tta_data, model, predictor, all_tta_parameter_paths):
     )
 
 
-def _internal_get_data_iterator_from_lists_of_filenames(
+def get_data_iterator_from_lists_of_filenames(
     predictor,
     input_list_of_lists: List[List[str]],
     seg_from_prev_stage_files: Union[List[str], None],
     output_filenames_truncated: Union[List[str], None],
 ):
-    # From nnunetv2/inference/predict_from_raw_data.py
+    # Adapted from nnunetv2/inference/predict_from_raw_data.py
     return preprocessing_iterator_fromfiles(
         input_list_of_lists,
         seg_from_prev_stage_files,
@@ -150,59 +150,7 @@ def preprocessing_iterator_fromfiles(
     configuration_manager: ConfigurationManager,
     verbose: bool = False,
 ):
-    # From nnunetv2/inference/data_iterators.py
-    # context = multiprocessing.get_context('spawn')
-    # manager = Manager()
-    # num_processes = min(len(list_of_lists), num_processes)
-    # assert num_processes >= 1
-    # processes = []
-    # done_events = []
-    # target_queues = []
-    # abort_event = manager.Event()
-    # for i in range(num_processes):
-    #     # event = manager.Event()
-    #     # queue = Manager().Queue(maxsize=1)
-    #     pr = context.Process(
-    #         target=preprocess_fromfiles_save_to_queue,
-    #         args=(
-    #             list_of_lists[i::num_processes],
-    #             list_of_segs_from_prev_stage_files[i::num_processes]
-    #             if list_of_segs_from_prev_stage_files is not None
-    #             else None,
-    #             output_filenames_truncated[i::num_processes]
-    #             if output_filenames_truncated is not None
-    #             else None,
-    #             plans_manager,
-    #             dataset_json,
-    #             configuration_manager,
-    #             queue,
-    #             event,
-    #             abort_event,
-    #             verbose,
-    #         ),
-    #         daemon=True,
-    #     )
-    # pr.start()
-    # target_queues.append(queue)
-    # done_events.append(event)
-    # processes.append(pr)
-
-    # worker_ctr = 0
-    # while (not done_events[worker_ctr].is_set()) or (not target_queues[worker_ctr].empty()):
-    #     if not target_queues[worker_ctr].empty():
-    #         item = target_queues[worker_ctr].get()
-    #         worker_ctr = (worker_ctr + 1) % num_processes
-    #     else:
-    #         all_ok = all(
-    #             [i.is_alive() or j.is_set() for i, j in zip(processes, done_events)]) and not abort_event.is_set()
-    #         if not all_ok:
-    #             raise RuntimeError('Background workers died. Look for the error message further up! If there is '
-    #                                'none then your RAM was full and the worker was killed by the OS. Use fewer '
-    #                                'workers or get more RAM in that case!')
-    #         sleep(0.01)
-    #         continue
-    #     if pin_memory:
-    #         [i.pin_memory() for i in item.values() if isinstance(i, torch.Tensor)]
+    # Adapted from nnunetv2/inference/data_iterators.py
     num_samples = len(list_of_lists)
     for smp_idx in range(num_samples):
         item = preprocess_fromfile(
@@ -215,7 +163,6 @@ def preprocessing_iterator_fromfiles(
             verbose,
         )
         yield item
-    # [p.join() for p in processes]
 
 
 def preprocess_fromfile(
@@ -225,22 +172,12 @@ def preprocess_fromfile(
     plans_manager: PlansManager,
     dataset_json: dict,
     configuration_manager: ConfigurationManager,
-    #    target_queue: Queue,
-    #    done_event: Event,
-    #    abort_event: Event,
     verbose: bool = False,
 ):
-    # From nnunetv2/inference/data_iterators.py
-    # try:
+    # Adapted from nnunetv2/inference/data_iterators.py
     label_manager = plans_manager.get_label_manager(dataset_json)
     preprocessor = configuration_manager.preprocessor_class(verbose=verbose)
-    # for idx in range(len(list_of_lists)):
-    # data, seg, data_properties = preprocessor.run_case(list_of_lists[idx],
-    #                                                     list_of_segs_from_prev_stage_files[
-    #                                                         idx] if list_of_segs_from_prev_stage_files is not None else None,
-    #                                                     plans_manager,
-    #                                                     configuration_manager,
-    #                                                     dataset_json)
+
     data, seg, data_properties = preprocessor.run_case(
         list_of_im_file,
         seg_from_prev_stage_file,
@@ -248,10 +185,7 @@ def preprocess_fromfile(
         configuration_manager,
         dataset_json,
     )
-    # if (
-    #     list_of_segs_from_prev_stage_files is not None
-    #     and list_of_segs_from_prev_stage_files[idx] is not None
-    # ):
+
     if seg_from_prev_stage_file is not None:
         seg_onehot = convert_labelmap_to_one_hot(
             seg[0], label_manager.foreground_labels, data.dtype
@@ -266,16 +200,3 @@ def preprocess_fromfile(
         "ofile": output_filename_truncated,
     }
     return item
-    #         success = False
-    #         while not success:
-    #             try:
-    #                 if abort_event.is_set():
-    #                     return
-    #                 target_queue.put(item, timeout=0.01)
-    #                 success = True
-    #             except queue.Full:
-    #                 pass
-    #     done_event.set()
-    # except Exception as e:
-    #     abort_event.set()
-    #     raise e
