@@ -21,7 +21,7 @@ There are four basic commands available:
 2) `dgtta pretrain`: Use this command to pre-train a model on a (CT) dataset with one of our trainers.
 3) `dgtta prepare_tta`: After pre-training, prepare TTA by specifying the source and target dataset
 4) `dgtta run_tta`: After preparation, you can run TTA on a target (MRI) dataset and evaluate how well the model bridged the domain gap.
-5) If you want to perform TTA without pre-training, you can skip steps 1) and 2) and use our pre-trained models (pre-trained on the [TotalSegmentator dataset](https://github.com/wasserth/TotalSegmentator) dataset)
+5) If you want to perform TTA without pre-training, you can skip step 2) and use our pre-trained models (pre-trained on the [TotalSegmentator dataset](https://github.com/wasserth/TotalSegmentator) dataset)
 
 ### Examples
 Prepare a `paths.sh` file which exports the following variables:
@@ -35,7 +35,7 @@ export DG_TTA_ROOT="/path/to/dir"
 
 1) Use case: Get to know the tool
   * `source paths.sh && dgtta`
-  
+
 2) Use case: Pre-train a GIN_MIND model on dataset 802 in nnUNet
   * `source paths.sh && dgtta inject_trainers --num_epochs 150`
   * `source paths.sh && dgtta pretrain -tr nnUNetTrainer_GIN_MIND 802 3d_fullres 0`
