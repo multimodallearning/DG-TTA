@@ -50,8 +50,8 @@ export DG_TTA_ROOT="/path/to/dir"
 
 4) Use case: Run TTA on dataset 678 with our pre-trained GIN model:
   * Inject trainers: `source paths.sh && dgtta inject_trainers`
-  * Prepare TTA: `source paths.sh && dgtta prepare_tta TS104_GIN 678 --pretrainer nnUNetTrainer_GIN --tta_dataset_bucket imagesTrAndTs`
-  * Run TTA: `source paths.sh && dgtta run_tta TS104_GIN 678 --pretrainer nnUNetTrainer_GIN`
+  * Prepare TTA: `source paths.sh && dgtta prepare_tta TS104_GIN 678 --tta_dataset_bucket imagesTrAndTs`
+  * Run TTA: `source paths.sh && dgtta run_tta TS104_GIN 678`
 
 ## Please refer to our work
 If you used DG-TTA, please cite:
