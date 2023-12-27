@@ -1,3 +1,4 @@
+import re
 from itertools import tee
 from pathlib import Path
 import importlib
@@ -52,20 +53,40 @@ from dg_tta.tta.nnunet_utils import (
 INTENSITY_AUG_FUNCTION_DICT = {"disabled": lambda img: img, "GIN": gin_aug}
 
 
-def get_sample_specs(smp_idx, tta_data, save_path, across_all_samples=False):
+def repair_ofilename_and_add_fileextension(config, sample):
+    # Fixes removing too much of the filename when using underscores and numbers in names
+    ofile = sample['ofile']
+    for _path in config['tta_data_filepaths']:
+        _path = Path(_path)
+        ofile_prefix = ofile_name = '/'.join(ofile.split('/')[:-1])
+        ofile_name = ofile.split('/')[-1]
+
+        if ofile_name in str(_path):
+            suffixes = ''.join(_path.suffixes)
+            repaired_name = re.match(r"(.*)_[0-9]{4}"+suffixes, _path.name).groups(0)[0]
+            sample['ofile'] = ofile_prefix + "/" + repaired_name
+            sample['file_extension'] = suffixes
+
+
+def get_sample_specs(config, smp_idx, tta_data, save_path, across_all_samples=False):
     if across_all_samples:
         tta_sample = None
+        for e in tta_data:
+            repair_ofilename_and_add_fileextension(config, e)
         tta_tens_list = [e["data"] for e in tta_data]
         sample_id = "all_samples"
+        sample_extension = None
         sub_dir_tta = save_path / "tta_output"
     else:
         tta_sample = next(tta_data)
         # tta_sample = tta_data[smp_idx] # In case you don't use a generator
+        repair_ofilename_and_add_fileextension(config, tta_sample)
         tta_tens_list = [tta_sample["data"]]
         sample_id = tta_sample["ofile"]
+        sample_extension = tta_sample["file_extension"]
         sub_dir_tta = save_path / Path(sample_id).parent
 
-    return tta_sample, tta_tens_list, sample_id, sub_dir_tta
+    return tta_sample, tta_tens_list, sample_id, sample_extension, sub_dir_tta
 
 
 def tta_main(
@@ -133,8 +154,8 @@ def tta_main(
 
     tqdm.write("\n# Starting TTA")
     for smp_idx in sample_range:
-        _, tta_tens_list, sample_id, sub_dir_tta = get_sample_specs(
-            smp_idx, tta_data, save_path, tta_across_all_samples
+        _, tta_tens_list, sample_id, sample_extension, sub_dir_tta = get_sample_specs(
+            config, smp_idx, tta_data, save_path, tta_across_all_samples
         )
         tqdm.write(f"\nSample {sample_id}")
 
@@ -312,7 +333,7 @@ def tta_main(
                             )
 
                             eval_dices[epoch] += (
-                                1 / tta_eval_patches * d_tgt_val.mean().item()
+                                1 / tta_eval_patches * d_tgt_val.nanmean().item()
                             )
 
                     if debug:
@@ -357,8 +378,8 @@ def tta_main(
     for smp_idx in trange(num_samples, desc="Samples"):
         ensemble_parameter_paths = []
 
-        tta_sample, tta_tens_list, param_sample_id, sub_dir_tta = get_sample_specs(
-            smp_idx, inference_data, save_path, across_all_samples=False
+        tta_sample, tta_tens_list, param_sample_id, sample_extension, sub_dir_tta = get_sample_specs(
+            config, smp_idx, inference_data, save_path, across_all_samples=False
         )
         tqdm.write(f"\nSample {param_sample_id}\n")
         tta_sample["data"] = get_imgs(tta_sample["data"].unsqueeze(0)).squeeze(0)
@@ -368,7 +389,7 @@ def tta_main(
         new_ofile = str(save_path / ofile)
         tta_sample["ofile"] = new_ofile
 
-        prediction_save_path = Path(new_ofile + ".nii.gz")
+        prediction_save_path = Path(new_ofile + sample_extension)
         prediction_save_path.parent.mkdir(exist_ok=True)
 
         for ensemble_idx in range(config["ensemble_count"]):
@@ -379,9 +400,9 @@ def tta_main(
         disable_internal_augmentation()
         model = get_model_from_network(network, modifier_fn_module)
 
-        run_inference(config, [tta_sample], model, predictor, ensemble_parameter_paths)
+        predicted_output_array = run_inference(tta_sample, model, predictor, ensemble_parameter_paths)
+        data_properties = tta_sample['data_properties']
 
-        predicted_output_array, data_properties = sitk_io.read_seg(prediction_save_path)
         predicted_output = map_label(
             torch.as_tensor(predicted_output_array),
             get_map_idxs(label_mapping, optimized_labels, input_type="pretrain_labels"),

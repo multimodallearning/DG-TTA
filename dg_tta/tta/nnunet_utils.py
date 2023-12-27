@@ -1,3 +1,4 @@
+import os
 from itertools import chain
 from typing import List, Union
 from pathlib import Path
@@ -7,11 +8,15 @@ import torch
 import numpy as np
 
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+from nnunetv2.utilities.helpers import empty_cache
 from nnunetv2.utilities.plans_handling.plans_handler import (
     PlansManager,
     ConfigurationManager,
 )
 from nnunetv2.utilities.label_handling.label_handling import convert_labelmap_to_one_hot
+from nnunetv2.inference.export_prediction import export_prediction_from_logits, \
+    convert_predicted_logits_to_segmentation_with_correct_shape
+from nnunetv2.inference.sliding_window_prediction import compute_gaussian
 
 from dg_tta.tta.config_log_utils import suppress_stdout
 
@@ -108,9 +113,8 @@ def load_network(weights_file, device):
     return predictor, patch_size, network, parameters
 
 
-def run_inference(config, tta_data, model, predictor, all_tta_parameter_paths):
+def run_inference(tta_sample, model, predictor, all_tta_parameter_paths):
     save_probabilities = False
-    num_processes_segmentation_export = config["num_processes"]
 
     tta_parameters = []
     for _path in all_tta_parameter_paths:
@@ -118,9 +122,7 @@ def run_inference(config, tta_data, model, predictor, all_tta_parameter_paths):
 
     predictor.network = deepcopy(model)
     predictor.list_of_parameters = tta_parameters
-    predictor.predict_from_data_iterator(
-        tta_data, save_probabilities, num_processes_segmentation_export
-    )
+    return predict_from_data_iterator(predictor, tta_sample, save_probabilities)
 
 
 def get_data_iterator_from_lists_of_filenames(
@@ -200,3 +202,37 @@ def preprocess_fromfile(
         "ofile": output_filename_truncated,
     }
     return item
+
+
+
+def predict_from_data_iterator(predictor,
+                               sample,
+                               save_probabilities: bool = False):
+    # Adapted from nnunetv2/inference/predict_from_raw_data.py
+    data = sample['data']
+    if isinstance(data, str):
+        delfile = data
+        data = torch.from_numpy(np.load(data))
+        os.remove(delfile)
+
+    ofile = sample['ofile']
+    if ofile is not None:
+        print(f'\nPredicting {os.path.basename(ofile)}:')
+    else:
+        print(f'\nPredicting image of shape {data.shape}:')
+
+    print(f'perform_everything_on_gpu: {predictor.perform_everything_on_gpu}')
+
+    properties = sample['data_properties']
+    prediction = predictor.predict_logits_from_preprocessed_data(data).cpu()
+
+    segmentation = convert_predicted_logits_to_segmentation_with_correct_shape(
+        prediction, predictor.plans_manager,
+        predictor.configuration_manager, predictor.label_manager,
+        properties, save_probabilities
+    )
+
+    compute_gaussian.cache_clear()
+    # clear device cache
+    empty_cache(predictor.device)
+    return segmentation

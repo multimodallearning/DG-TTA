@@ -350,7 +350,8 @@ def get_data_filepaths(tta_dataset_name, tta_dataset_bucket):
 
     file_list = []
     for src_fld in source_folders:
-        file_list.extend(filter(lambda x: x.is_file(), src_fld.iterdir()))
+        if src_fld.is_dir():
+            file_list.extend(filter(lambda x: x.is_file(), src_fld.iterdir()))
 
     return file_list
 

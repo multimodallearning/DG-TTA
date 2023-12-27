@@ -28,15 +28,9 @@ def read_image(source_data_paths, path_idx):
 
 def get_target_imgs_datapaths():
     check_dga_root_is_set()
-    buckets = ["imagesTr", "imagesTs"]
     with open("tta_plan.json", "r") as f:
         tta_plan = json.load(f)
-    target_dataset_name = tta_plan["__tta_dataset_name__"]
-    target_data_paths = []
-
-    for buc in buckets:
-        target_data_paths.extend(get_data_filepaths(target_dataset_name, buc))
-    return target_data_paths
+    return  tta_plan["tta_data_filepaths"]
 
 
 def get_source_imgs_datapaths():
