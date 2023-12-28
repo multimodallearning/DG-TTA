@@ -22,8 +22,8 @@ def get_batch(tensor_list, batch_idx, patch_size, fixed_patch_idx=None, device="
     b_img = []
     b_label = []
 
-    for b in range(B):
-        with torch.no_grad():
+    with torch.no_grad():
+        for b in range(B):
             # Get patches
             data = tensor_list[batch_idx[b]]
             if fixed_patch_idx is None:
@@ -67,25 +67,48 @@ def get_batch(tensor_list, batch_idx, patch_size, fixed_patch_idx=None, device="
                 rand_patch_w : rand_patch_w + patch_size[2],
             ]
 
-            b_img.append(F.grid_sample(
-                data[0:1].unsqueeze(0).to(device), patch_grid, align_corners=False
-            ))
+            # Grid sample based patching (only useful if patch is augmented here)
+            # b_img.append(F.grid_sample(
+            #     data[0:1].unsqueeze(0).to(device), patch_grid, align_corners=False
+            # ))
+            # Cut based patching
+            b_img.append(
+                data[0:1].unsqueeze(0)[
+                    :,
+                    :,
+                    rand_patch_d : rand_patch_d + patch_size[0],
+                    rand_patch_h : rand_patch_h + patch_size[1],
+                    rand_patch_w : rand_patch_w + patch_size[2]
+                ].to(device)
+            )
 
             if data[1:].numel() == 0:
                 # No GT label is available for this sample
                 b_label.append(None)
             else:
+                # Grid sample based patching (only useful if patch is augmented here)
+                # b_label.append(
+                #     get_argmaxed_segs(
+                #         F.grid_sample(
+                #             data[1:].to(torch.float16).unsqueeze(0).to(device),
+                #             patch_grid.to(torch.float16),
+                #             align_corners=False,
+                #             mode="nearest",
+                #         )
+                #     )
+                # )
+                # Cut based patching
                 b_label.append(
                     get_argmaxed_segs(
-                        F.grid_sample(
-                            data[1:].unsqueeze(0).to(device),
-                            patch_grid,
-                            align_corners=False,
-                            mode="nearest",
-                        )
+                        data[1:].unsqueeze(0)[
+                            :,
+                            :,
+                            rand_patch_d : rand_patch_d + patch_size[0],
+                            rand_patch_h : rand_patch_h + patch_size[1],
+                            rand_patch_w : rand_patch_w + patch_size[2]
+                        ].to(device)
                     )
                 )
-
     return b_img, b_label
 
 

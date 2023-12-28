@@ -215,14 +215,6 @@ def predict_from_data_iterator(predictor,
         data = torch.from_numpy(np.load(data))
         os.remove(delfile)
 
-    ofile = sample['ofile']
-    if ofile is not None:
-        print(f'\nPredicting {os.path.basename(ofile)}:')
-    else:
-        print(f'\nPredicting image of shape {data.shape}:')
-
-    print(f'perform_everything_on_gpu: {predictor.perform_everything_on_gpu}')
-
     properties = sample['data_properties']
     prediction = predictor.predict_logits_from_preprocessed_data(data).cpu()
 
