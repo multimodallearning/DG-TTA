@@ -23,6 +23,7 @@ from dg_tta.tta.config_log_utils import (
     load_current_modifier_functions,
     get_tta_folders,
     wandb_run_is_available,
+    check_dataset_pretrain_config,
 )
 from dg_tta.tta.tta import tta_main
 
@@ -102,22 +103,16 @@ class DGTTAProgram:
         )
 
         args = parser.parse_args(sys.argv[2:])
-        pretrained_dataset_id = (
-            int(args.pretrained_dataset_id)
-            if args.pretrained_dataset_id.isnumeric()
-            else args.pretrained_dataset_id
-        )
-        pretrainer_fold = (
-            int(args.pretrainer_fold)
-            if args.pretrainer_fold.isnumeric()
-            else args.pretrainer_fold
+
+        pretrained_dataset_id, pretrainer, pretrainer_config, pretrainer_fold = check_dataset_pretrain_config(
+            args.pretrained_dataset_id, args.pretrainer, args.pretrainer_config, args.pretrainer_fold
         )
 
         dg_tta.tta.config_log_utils.prepare_tta(
             pretrained_dataset_id,
             int(args.tta_dataset_id),
-            pretrainer=args.pretrainer,
-            pretrainer_config=args.pretrainer_config,
+            pretrainer=pretrainer,
+            pretrainer_config=pretrainer_config,
             pretrainer_fold=pretrainer_fold,
             tta_dataset_bucket=args.tta_dataset_bucket,
         )
@@ -150,15 +145,9 @@ class DGTTAProgram:
         parser.add_argument("--device", help="Device to be used", default="cuda")
 
         args = parser.parse_args(sys.argv[2:])
-        pretrained_dataset_id = (
-            int(args.pretrained_dataset_id)
-            if args.pretrained_dataset_id.isnumeric()
-            else args.pretrained_dataset_id
-        )
-        pretrainer_fold = (
-            int(args.pretrainer_fold)
-            if args.pretrainer_fold.isnumeric()
-            else args.pretrainer_fold
+
+        pretrained_dataset_id, pretrainer, pretrainer_config, pretrainer_fold = check_dataset_pretrain_config(
+            args.pretrained_dataset_id, args.pretrainer, args.pretrainer_config, args.pretrainer_fold
         )
 
         (
@@ -170,8 +159,8 @@ class DGTTAProgram:
         ) = get_tta_folders(
             pretrained_dataset_id,
             int(args.tta_dataset_id),
-            args.pretrainer,
-            args.pretrainer_config,
+            pretrainer,
+            pretrainer_config,
             pretrainer_fold,
         )
 

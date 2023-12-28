@@ -93,10 +93,6 @@ def get_tta_folders(
 ):
     root_dir = Path(os.environ["DG_TTA_ROOT"])
 
-    pretrainer, pretrainer_config, pretrainer_fold = check_dataset_pretrain_config(
-        pretrained_dataset_id, pretrainer, pretrainer_config, pretrainer_fold
-    )
-
     # Get dataset names
     tta_dataset_name = maybe_convert_to_dataset_name(tta_dataset_id)
 
@@ -128,6 +124,18 @@ def get_tta_folders(
 def check_dataset_pretrain_config(
     pretrained_dataset_id, pretrainer, pretrainer_config, pretrainer_fold
 ):
+    pretrained_dataset_id = (
+        int(pretrained_dataset_id)
+        if pretrained_dataset_id.isnumeric()
+        else pretrained_dataset_id
+    )
+
+    pretrainer_fold = (
+        int(pretrainer_fold)
+        if pretrainer_fold.isnumeric()
+        else pretrainer_fold
+    )
+
     assert pretrained_dataset_id in [
         "TS104_GIN",
         "TS104_MIND",
@@ -158,15 +166,15 @@ def check_dataset_pretrain_config(
         else:
             raise ValueError()
 
-    return pretrainer, pretrainer_config, pretrainer_fold
+    return pretrained_dataset_id, pretrainer, pretrainer_config, pretrainer_fold
 
 
 def prepare_tta(
     pretrained_dataset_id,
     tta_dataset_id,
-    pretrainer=None,
-    pretrainer_config=None,
-    pretrainer_fold=None,
+    pretrainer,
+    pretrainer_config,
+    pretrainer_fold,
     tta_dataset_bucket="imagesTs",
 ):
     root_dir = Path(os.environ["DG_TTA_ROOT"])
