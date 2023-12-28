@@ -363,7 +363,7 @@ def tta_main(
             tta_parameters = [model.state_dict()]
             torch.save(tta_parameters, tta_parameters_save_path)
 
-            if not wandb_run_is_available():
+            if not wandb_run_is_available() and num_epochs > 0:
                 plot_run_results(
                     sub_dir_tta, sample_id, ensemble_idx, tta_losses, eval_dices
                 )
