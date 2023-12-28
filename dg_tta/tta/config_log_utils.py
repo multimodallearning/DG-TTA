@@ -401,7 +401,7 @@ def plot_run_results(save_path, sample_id, ensemble_idx, tta_losses, eval_dices)
 
     ax_two.plot(eval_dices * 100, label="eval_dices", c=c2)
     ax_two.set_yticks([eval_dices.min() * 100, eval_dices.max() * 100])
-    ax_two.set_ylabel("Pseudo Dice in %", c=c2)
+    ax_two.set_ylabel("Pseudo-Dice in %", c=c2)
     ax_two.tick_params(axis="y", colors=c2)
     ax_two.yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter("%.1f"))
     fig.suptitle(f"{sample_id} (ensemble_idx={ensemble_idx})")
