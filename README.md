@@ -17,7 +17,13 @@ method for deep learning-based biomedical image segmentation. Nature methods, 18
 ## Usage
 Run `dgtta -h` from your commandline interface to get started.
 There are four basic commands available:
-1) `dgtta inject_trainers`: This will copy our specialized trainers with DG techniques and make them available in the nnUNet framework
+1) `dgtta inject_trainers`: This will copy our specialized trainers with DG techniques and make them available in the nnUNet framework. Available trainers are:
+  * nnUNetTrainer_GIN (optimized for 1.5mm spacing)
+  * nnUNetTrainer_MIND (optimized for 1.5mm spacing)
+  * nnUNetTrainer_GIN_MIND (optimized for 1.5mm spacing)
+  * nnUNetTrainer_GIN_MultiRes (optimized for 1.5, 3.0, 6.0 and 9.0mm spacing)
+  * nnUNetTrainer_MIND_MultiRes (optimized for 1.5, 3.0, 6.0 and 9.0mm spacing)
+  * nnUNetTrainer_GIN_MIND_MultiRes (optimized for 1.5, 3.0, 6.0 and 9.0mm spacing)
 2) `dgtta pretrain`: Use this command to pre-train a model on a (CT) dataset with one of our trainers.
 3) `dgtta prepare_tta`: After pre-training, prepare TTA by specifying the source and target dataset
 4) `dgtta run_tta`: After preparation, you can run TTA on a target (MRI) dataset and evaluate how well the model bridged the domain gap.
@@ -48,10 +54,10 @@ export DG_TTA_ROOT="/path/to/dir"
   * Run TTA: `source paths.sh && dgtta run_tta 802 678 --pretrainer nnUNetTrainer_GIN_MIND --pretrainer_config 3d_fullres --pretrainer_fold 0`
   * Find the results inside the DG_TTA_ROOT directory
 
-4) Use case: Run TTA on dataset 678 with our pre-trained GIN model:
+4) Use case: Run TTA on dataset 678 with our pre-trained GIN_MIND model:
   * Inject trainers: `source paths.sh && dgtta inject_trainers`
-  * Prepare TTA: `source paths.sh && dgtta prepare_tta TS104_GIN 678 --tta_dataset_bucket imagesTrAndTs`
-  * Run TTA: `source paths.sh && dgtta run_tta TS104_GIN 678`
+  * Prepare TTA: `source paths.sh && dgtta prepare_tta TS104_GIN_MIND 678 --tta_dataset_bucket imagesTrAndTs`
+  * Run TTA: `source paths.sh && dgtta run_tta TS104_GIN_MIND 678`
 
 ## Please refer to our work
 If you used DG-TTA, please cite:

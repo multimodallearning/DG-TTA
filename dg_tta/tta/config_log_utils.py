@@ -140,6 +140,9 @@ def check_dataset_pretrain_config(
         "TS104_GIN",
         "TS104_MIND",
         "TS104_GIN_MIND",
+        "TS104_GIN_MultiRes",
+        "TS104_MIND_MultiRes",
+        "TS104_GIN_MIND_MultiRes"
     ] or isinstance(pretrained_dataset_id, int)
 
     if isinstance(pretrained_dataset_id, int):
@@ -160,6 +163,21 @@ def check_dataset_pretrain_config(
 
         elif pretrained_dataset_id == "TS104_GIN_MIND":
             pretrainer = "nnUNetTrainer_GIN_MIND"
+            pretrainer_config = "3d_fullres"
+            pretrainer_fold = "0"
+
+        elif pretrained_dataset_id == "TS104_GIN_MultiRes":
+            pretrainer = "nnUNetTrainer_GIN_MultiRes"
+            pretrainer_config = "3d_fullres"
+            pretrainer_fold = "0"
+
+        elif pretrained_dataset_id == "TS104_MIND_MultiRes":
+            pretrainer = "nnUNetTrainer_MIND_MultiRes"
+            pretrainer_config = "3d_fullres"
+            pretrainer_fold = "0"
+
+        elif pretrained_dataset_id == "TS104_GIN_MIND_MultiRes":
+            pretrainer = "nnUNetTrainer_GIN_MIND_MultiRes"
             pretrainer_config = "3d_fullres"
             pretrainer_fold = "0"
 
@@ -300,6 +318,18 @@ def download_pretrained_weights(pretrained_dataset_id):
     elif pretrained_dataset_id == "TS104_GIN_MIND":
         pretrainer_dir = "nnUNetTrainer_GIN_MIND__nnUNetPlans__3d_fullres"
         dl_link = "https://cloud.imi.uni-luebeck.de/s/dkGdfFGwbnzWya4/download"
+
+    if pretrained_dataset_id == "TS104_GIN_MultiRes":
+        pretrainer_dir = "nnUNetTrainer_GIN_MultiRes__nnUNetPlans__3d_fullres"
+        dl_link = ""
+
+    elif pretrained_dataset_id == "TS104_MIND_MultiRes":
+        pretrainer_dir = "nnUNetTrainer_MIND_MultiRes__nnUNetPlans__3d_fullres"
+        dl_link = ""
+
+    elif pretrained_dataset_id == "TS104_GIN_MIND_MultiRes":
+        pretrainer_dir = "nnUNetTrainer_GIN_MIND_MultiRes__nnUNetPlans__3d_fullres"
+        dl_link = ""
 
     else:
         raise ValueError()
