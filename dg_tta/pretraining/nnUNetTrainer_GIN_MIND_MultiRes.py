@@ -17,10 +17,11 @@ from nnunetv2.utilities.get_network_from_plans import get_network_from_plans
 from dg_tta.gin import gin_hook
 from dg_tta.mind import mind_hook
 from dg_tta.utils import enable_internal_augmentation
+from . import nnUNetTrainer_GIN_MIND
 from dg_tta.pretraining.discrete_downsampling import SimulateDiscreteLowResolutionTransform
 
 
-class nnUNetTrainer_GIN_MIND_MultiRes(nnUNetTrainer):
+class nnUNetTrainer_GIN_MIND_MultiRes(nnUNetTrainer_GIN_MIND):
     # Changed SimulateLowResolutionTransform parameters to have a more intense low-res setting
     def __init__(
         self,
@@ -35,29 +36,6 @@ class nnUNetTrainer_GIN_MIND_MultiRes(nnUNetTrainer):
             plans, configuration, fold, dataset_json, unpack_dataset, device
         )
         self.num_epochs = 1000
-
-    @staticmethod
-    def build_network_architecture(
-        plans_manager: PlansManager,
-        dataset_json,
-        configuration_manager: ConfigurationManager,
-        num_input_channels,
-        enable_deep_supervision: bool = True,
-    ) -> nn.Module:
-        num_input_channels = 12
-        network = get_network_from_plans(
-            plans_manager,
-            dataset_json,
-            configuration_manager,
-            num_input_channels,
-            deep_supervision=enable_deep_supervision,
-        )
-
-        enable_internal_augmentation()
-        gin_hook_handle = network.register_forward_pre_hook(gin_hook)
-        mind_hook_handle = network.register_forward_pre_hook(mind_hook)
-
-        return network
 
     @staticmethod
     def get_training_transforms(patch_size: Union[np.ndarray, Tuple[int]],
