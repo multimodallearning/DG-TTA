@@ -10,7 +10,7 @@ MOD_GET_FN = (
 )
 
 
-def get_batch(tensor_list, batch_idx, patch_size, fixed_patch_idx=None, device="cpu"):
+def get_batch(tensor_list, batch_idxs, patch_size, fixed_patch_idx=None, device="cpu"):
     assert (
         fixed_patch_idx in range(8)
         or fixed_patch_idx == None
@@ -18,97 +18,61 @@ def get_batch(tensor_list, batch_idx, patch_size, fixed_patch_idx=None, device="
     )
 
     device = torch.device(device)
-    B = len(batch_idx)
+    B = len(batch_idxs)
     b_img = []
     b_label = []
+
+    t_patch_size = torch.as_tensor(patch_size)
+    t_input_shape = torch.as_tensor(tensor_list[0].shape[-3:])
+    scales = t_patch_size / t_input_shape
+    scales = torch.cat([scales.flip(0), torch.tensor([1.])], dim=0)
+
+    patch_affine = scales.diag()
 
     with torch.no_grad():
         for b in range(B):
             # Get patches
-            data = tensor_list[batch_idx[b]]
-            if fixed_patch_idx is None:
-                rand_patch_d = torch.randint(
-                    max(data.shape[1] - patch_size[0], 0), (1,)
-                )
-                rand_patch_h = torch.randint(
-                    max(data.shape[2] - patch_size[1], 0), (1,)
-                )
-                rand_patch_w = torch.randint(
-                    max(data.shape[3] - patch_size[2], 0), (1,)
-                )
+            data = tensor_list[batch_idxs[b]]
 
-            elif fixed_patch_idx == "center":
-                rand_patch_d = max((data.shape[1] - patch_size[0]) // 2, 0)
-                rand_patch_h = max((data.shape[2] - patch_size[1]) // 2, 0)
-                rand_patch_w = max((data.shape[3] - patch_size[2]) // 2, 0)
-
+            if fixed_patch_idx == "center":
+                pass
             else:
-                p_idxs = f"{fixed_patch_idx:03b}"
-                p_idxs = [int(idx) for idx in [*p_idxs]]
-                rand_patch_d = p_idxs[0] * patch_size[0]
-                rand_patch_h = p_idxs[1] * patch_size[1]
-                rand_patch_w = p_idxs[2] * patch_size[2]
-            # print(rand_patch_d, rand_patch_h, rand_patch_w)
+                rand_offset = 2.*torch.rand(3)-1.
+                offset_range = (t_input_shape - t_patch_size) / t_input_shape
+                offset_range = offset_range.clip(min=0.0)
+                ranged_offset = rand_offset * offset_range
+                ranged_offset = torch.cat([ranged_offset.flip(0), torch.tensor([1.])], dim=0)
+                patch_affine[:,-1] = ranged_offset
 
             out_shape = (
                 1,
                 1,
-                max(data.shape[1], patch_size[0]),
-                max(data.shape[2], patch_size[1]),
-                max(data.shape[3], patch_size[2]),
+                patch_size[0],
+                patch_size[1],
+                patch_size[2],
             )
-            grid = F.affine_grid(
-                torch.eye(3, 4).unsqueeze(0).to(device), out_shape, align_corners=False
-            )
-            patch_grid = grid[
-                :,
-                rand_patch_d : rand_patch_d + patch_size[0],
-                rand_patch_h : rand_patch_h + patch_size[1],
-                rand_patch_w : rand_patch_w + patch_size[2],
-            ]
 
-            # Grid sample based patching (only useful if patch is augmented here)
-            # b_img.append(F.grid_sample(
-            #     data[0:1].unsqueeze(0).to(device), patch_grid, align_corners=False
-            # ))
-            # Cut based patching
-            b_img.append(
-                data[0:1].unsqueeze(0)[
-                    :,
-                    :,
-                    rand_patch_d : rand_patch_d + patch_size[0],
-                    rand_patch_h : rand_patch_h + patch_size[1],
-                    rand_patch_w : rand_patch_w + patch_size[2]
-                ].to(device)
+            patch_grid = F.affine_grid(
+                patch_affine[:3][None].to(device), out_shape, align_corners=False
             )
+            img_min = data[0].min()
+            img_patch = F.grid_sample(
+                data[0][None,None].to(device) - img_min.to(device), patch_grid, align_corners=False, padding_mode="zeros"
+            )
+            img_patch = img_patch + img_min.to(device)
+            # import nibabel as nib
+            # nib.Nifti1Image(img_patch.squeeze().cpu().numpy(), torch.eye(4).numpy()).to_filename("out.nii.gz")
+            b_img.append(img_patch)
 
             if data[1:].numel() == 0:
                 # No GT label is available for this sample
                 b_label.append(None)
             else:
-                # Grid sample based patching (only useful if patch is augmented here)
-                # b_label.append(
-                #     get_argmaxed_segs(
-                #         F.grid_sample(
-                #             data[1:].to(torch.float16).unsqueeze(0).to(device),
-                #             patch_grid.to(torch.float16),
-                #             align_corners=False,
-                #             mode="nearest",
-                #         )
-                #     )
-                # )
-                # Cut based patching
-                b_label.append(
-                    get_argmaxed_segs(
-                        data[1:].unsqueeze(0)[
-                            :,
-                            :,
-                            rand_patch_d : rand_patch_d + patch_size[0],
-                            rand_patch_h : rand_patch_h + patch_size[1],
-                            rand_patch_w : rand_patch_w + patch_size[2]
-                        ].to(device)
-                    )
+                lbl_patch = F.grid_sample(
+                    data[1:][None].to(device), patch_grid, align_corners=False, padding_mode="zeros", mode="nearest"
                 )
+                b_label.append(get_argmaxed_segs(lbl_patch))
+
     return b_img, b_label
 
 
