@@ -86,7 +86,7 @@ class nnUNetTrainer_MIND_MultiRes(nnUNetTrainer):
                 # Replace SimulateLowResolutionTransform with SimulateDiscreteLowResolutionTransform
                 sdlr_tr = SimulateDiscreteLowResolutionTransform(
                     zoom_range=(1/6, 1/4, 1/2), # Using discrete zoom range
-                    zoom_axes_invidually=False,
+                    zoom_axes_invidually=True,
                     per_channel=False,
                     p_per_channel=1., # Increased to 1.
                     order_downsample=0, order_upsample=3, p_per_sample=.5,
