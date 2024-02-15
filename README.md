@@ -59,6 +59,14 @@ export DG_TTA_ROOT="/path/to/dir"
   * Prepare TTA: `source paths.sh && dgtta prepare_tta TS104_GIN_MIND 678 --tta_dataset_bucket imagesTrAndTs`
   * Run TTA: `source paths.sh && dgtta run_tta TS104_GIN_MIND 678`
 
+5) All of our pre-trained models (use in case 4)):
+  * TS104_GIN
+  * TS104_MIND
+  * TS104_GIN_MIND
+  * TS104_GIN_MultiRes
+  * TS104_MIND_MultiRes
+  * TS104_GIN_MIND_MultiRes
+
 ## Please refer to our work
 If you used DG-TTA, please cite:
 
