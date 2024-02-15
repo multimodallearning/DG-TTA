@@ -8,6 +8,7 @@ import json
 
 from contextlib import nullcontext
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -221,7 +222,7 @@ def tta_main(
                     with torch.no_grad():
                         imgs, _ = get_batch(
                             tta_tens_list,
-                            torch.randperm(len(tta_tens_list))[:B],
+                            np.random.choice(range(len(tta_tens_list)), B).tolist(),
                             patch_size,
                             fixed_patch_idx=None,
                             device=device,
@@ -284,7 +285,7 @@ def tta_main(
                     for _ in range(tta_eval_patches):
                         imgs, labels = get_batch(
                             tta_tens_list,
-                            torch.randperm(len(tta_tens_list))[:B],
+                            np.random.choice(range(len(tta_tens_list)), B).tolist(),
                             patch_size,
                             fixed_patch_idx="center",  # This is just for evaluation purposes
                             device=device,
