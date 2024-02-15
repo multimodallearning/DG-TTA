@@ -1,3 +1,4 @@
+import os
 import json
 import matplotlib
 import matplotlib.pyplot as plt
@@ -101,7 +102,7 @@ def show_image_overview(img, sitk_stuff, fig_inch_size=5.0):
         grid_axes = ImageGrid(fig, 221 + idx, nrows_ncols=(4, 4), axes_pad=0.0)
 
         for ax, slc in zip(grid_axes, slices):
-            ax.imshow(slc, cmap="gray", vmin=vmin, vmax=vmax)
+            ax.imshow(slc.flip(0), cmap="gray", vmin=vmin, vmax=vmax)
             ax.set_aspect(get_spacing_ratio(sitk_stuff, idx))
 
         for ax in grid_axes:
