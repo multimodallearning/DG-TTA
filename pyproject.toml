@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "dg-tta"
-version = "1.0.13"
+version = "1.0.14"
 description = "DG-TTA: Out-of-domain medical image segmentation through Domain Generalization and Test-Time Adaptation"
 authors = [
     "Christian Weihsbach <christian.weihsbach@uni-luebeck.de>",
@@ -16,6 +16,7 @@ nnunetv2 = "^2.2.1"
 randomname = "^0.2.1"
 wandb = {version = "^0.16.1", optional = true}
 ipykernel = {version = "^6.27.1", optional = true}
+numpy = "^1.26.4"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
