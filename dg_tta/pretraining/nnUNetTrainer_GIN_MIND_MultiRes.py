@@ -1,23 +1,14 @@
 import torch
-import torch.nn as nn
 
 from typing import Union, Tuple, List
 
 import numpy as np
 from batchgenerators.transforms.abstract_transforms import AbstractTransform, Compose
 from batchgenerators.transforms.resample_transforms import SimulateLowResolutionTransform
-from nnunetv2.utilities.plans_handling.plans_handler import PlansManager, ConfigurationManager
 
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
-from nnunetv2.utilities.plans_handling.plans_handler import (
-    PlansManager,
-    ConfigurationManager,
-)
-from nnunetv2.utilities.get_network_from_plans import get_network_from_plans
-from dg_tta.gin import gin_hook
-from dg_tta.mind import mind_hook
-from dg_tta.utils import enable_internal_augmentation
-from . import nnUNetTrainer_GIN_MIND
+
+from .nnUNetTrainer_GIN_MIND import nnUNetTrainer_GIN_MIND
 from dg_tta.pretraining.discrete_downsampling import SimulateDiscreteLowResolutionTransform
 
 
