@@ -321,18 +321,15 @@ def download_pretrained_weights(pretrained_dataset_id):
 
     if pretrained_dataset_id == "TS104_GIN_MultiRes":
         pretrainer_dir = "nnUNetTrainer_GIN_MultiRes__nnUNetPlans__3d_fullres"
-        dl_link = ""
-        raise NotImplementedError("MultiRes weights not yet available.")
+        dl_link = "https://cloud.imi.uni-luebeck.de/s/xcR7wLL6ZM7tiGf/download"
 
     elif pretrained_dataset_id == "TS104_MIND_MultiRes":
         pretrainer_dir = "nnUNetTrainer_MIND_MultiRes__nnUNetPlans__3d_fullres"
-        dl_link = ""
-        raise NotImplementedError("MultiRes weights not yet available.")
+        dl_link = "https://cloud.imi.uni-luebeck.de/s/cmrPBj7EYtwTjNP/download"
 
     elif pretrained_dataset_id == "TS104_GIN_MIND_MultiRes":
         pretrainer_dir = "nnUNetTrainer_GIN_MIND_MultiRes__nnUNetPlans__3d_fullres"
-        dl_link = ""
-        raise NotImplementedError("MultiRes weights not yet available.")
+        dl_link = "https://cloud.imi.uni-luebeck.de/s/bycFSFPkS5P2G8k/download"
 
     else:
         raise ValueError()
