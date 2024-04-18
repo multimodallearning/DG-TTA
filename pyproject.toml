@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "dg-tta"
-version = "1.0.17"
+version = "1.0.18"
 description = "DG-TTA: Out-of-domain medical image segmentation through Domain Generalization and Test-Time Adaptation"
 authors = [
     "Christian Weihsbach <christian.weihsbach@uni-luebeck.de>",
