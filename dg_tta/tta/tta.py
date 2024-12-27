@@ -369,12 +369,12 @@ def tta_main(
                         step=global_idx,
                     )
 
-                if entropy_is_increasing(model_entropies):
+                if entropy_is_increasing(model_entropies) and config['tta_use_entropy_stop_condition']:
                     break
 
                 if debug:
                     break
-                
+
             tta_parameters = [model.state_dict()]
             torch.save(tta_parameters, tta_parameters_save_path)
 
@@ -407,7 +407,7 @@ def tta_main(
         prediction_save_path = Path(new_ofile + sample_extension)
         prediction_save_path.parent.mkdir(exist_ok=True)
 
-        for ensemble_idx in range(config["ensemble_count"]):
+        for ensemble_idx in range(ensemble_count):
             ensemble_parameter_paths.append(
                 get_parameters_save_path(sub_dir_tta, param_sample_id, ensemble_idx)
             )

@@ -23,6 +23,7 @@ import dg_tta
 
 TEMPLATE_PLAN = dict(
     tta_across_all_samples=False,
+    tta_use_entropy_stop_condition=True,
     tta_eval_patches=1,
     batch_size=1,
     patches_to_be_accumulated=16,
