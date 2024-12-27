@@ -27,7 +27,7 @@ from dg_tta.tta.config_log_utils import (
 )
 from dg_tta.tta.tta import tta_main
 
-PROJECT_NAME = "nnunet_tta"
+PROJECT_NAME = "DG-TTA"
 
 
 class DGTTAProgram:
