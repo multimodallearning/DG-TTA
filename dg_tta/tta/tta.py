@@ -50,6 +50,7 @@ from dg_tta.tta.nnunet_utils import (
     load_network,
     load_tta_data,
 )
+from dg_tta.tta.entropy_utils import calc_model_entropy, entropy_is_increasing
 
 INTENSITY_AUG_FUNCTION_DICT = {"disabled": lambda img: img, "GIN": gin_aug}
 
@@ -174,6 +175,7 @@ def tta_main(
 
             tta_losses = torch.zeros(num_epochs)
             eval_dices = torch.zeros(num_epochs)
+            model_entropies = []
 
             intensity_aug_func = INTENSITY_AUG_FUNCTION_DICT[
                 config["intensity_aug_function"]
@@ -276,6 +278,7 @@ def tta_main(
 
                 if epoch >= start_tta_at_epoch:
                     optimizer.step()
+                    model_entropies.append(calc_model_entropy(model))
                     optimizer.zero_grad()
 
                 tta_losses[epoch] = torch.stack(step_losses).mean().item()
@@ -337,9 +340,6 @@ def tta_main(
                                 1 / tta_eval_patches * d_tgt_val.nanmean().item()
                             )
 
-                    if debug:
-                        break
-
                 tbar.set_description(
                     f"Epochs, loss={tta_losses[epoch]:.3f}, Pseudo-Dice={eval_dices[epoch]*100:.1f}%"
                 )
@@ -354,6 +354,14 @@ def tta_main(
                     )
                     wandb.log(
                         {
+                            f"entropy/train_grad_entropy__{sample_id}__ensemble_idx_{ensemble_idx}": model_entropies[
+                                epoch
+                            ]
+                        },
+                        step=global_idx,
+                    )
+                    wandb.log(
+                        {
                             f"scores/eval_dice__{sample_id}__ensemble_idx_{ensemble_idx}": eval_dices[
                                 epoch
                             ]
@@ -361,6 +369,12 @@ def tta_main(
                         step=global_idx,
                     )
 
+                if entropy_is_increasing(model_entropies):
+                    break
+
+                if debug:
+                    break
+                
             tta_parameters = [model.state_dict()]
             torch.save(tta_parameters, tta_parameters_save_path)
 
