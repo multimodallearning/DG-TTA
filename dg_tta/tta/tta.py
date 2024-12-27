@@ -369,7 +369,7 @@ def tta_main(
                         step=global_idx,
                     )
 
-                if entropy_is_increasing(model_entropies) and config['tta_use_entropy_stop_condition']:
+                if entropy_is_increasing(torch.tensor(model_entropies)) and config['tta_use_entropy_stop_condition']:
                     break
 
                 if debug:
