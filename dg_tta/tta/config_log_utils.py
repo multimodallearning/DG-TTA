@@ -403,6 +403,10 @@ def wandb_run_is_available():
     )
 
 
+def wandb_is_available():
+    return importlib.util.find_spec("wandb") is not None
+
+
 @contextmanager
 def suppress_stdout():
     with open(os.devnull, "w") as devnull:

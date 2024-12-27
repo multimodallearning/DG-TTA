@@ -22,7 +22,7 @@ from dg_tta.tta.config_log_utils import (
     wandb_run,
     load_current_modifier_functions,
     get_tta_folders,
-    wandb_run_is_available,
+    wandb_is_available,
     check_dataset_pretrain_config,
 )
 from dg_tta.tta.tta import tta_main
@@ -202,8 +202,8 @@ class DGTTAProgram:
             device=device,
         )
 
-        if wandb_run_is_available():
-            wandb_run("DG-TTA", tta_main, **kwargs)
+        if wandb_is_available():
+            wandb_run(PROJECT_NAME, tta_main, **kwargs)
             sys.exit(0)
 
         tta_main(**kwargs)

@@ -276,9 +276,10 @@ def tta_main(
                     if epoch >= start_tta_at_epoch:
                         loss_accum.backward()
 
+
                 if epoch >= start_tta_at_epoch:
-                    optimizer.step()
                     model_entropies.append(calc_model_entropy(model))
+                    optimizer.step()
                     optimizer.zero_grad()
 
                 tta_losses[epoch] = torch.stack(step_losses).mean().item()
@@ -354,20 +355,21 @@ def tta_main(
                     )
                     wandb.log(
                         {
-                            f"entropy/train_grad_entropy__{sample_id}__ensemble_idx_{ensemble_idx}": model_entropies[
-                                epoch
-                            ]
-                        },
-                        step=global_idx,
-                    )
-                    wandb.log(
-                        {
                             f"scores/eval_dice__{sample_id}__ensemble_idx_{ensemble_idx}": eval_dices[
                                 epoch
                             ]
                         },
                         step=global_idx,
                     )
+                    if epoch >= start_tta_at_epoch:
+                        wandb.log(
+                            {
+                                f"entropy/train_grad_entropy__{sample_id}__ensemble_idx_{ensemble_idx}": model_entropies[
+                                    -1
+                                ]
+                            },
+                            step=global_idx,
+                        )
 
                 if epoch >= start_tta_at_epoch and entropy_is_increasing(torch.tensor(model_entropies)) and config['tta_use_entropy_stop_condition']:
                     break
